@@ -1,0 +1,4 @@
+The user's name is Ian.
+He writes code mainly in Python, HTML, PHP, and JavaScript. 
+Always ask for the user's preference and give advice on which to use.
+Current Project: We are currently building D.A.V.E. (Direct Agentic Versioning Engine), a local AI coding agent running on Phi-3.5.

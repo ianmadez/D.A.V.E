@@ -1,0 +1,7 @@
+.env
+.dave_cache/
+__pycache__/
+*.pkl
+*.pyc
+.venv/
+node_modules/
