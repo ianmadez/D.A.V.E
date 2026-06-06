@@ -1,9 +1,13 @@
-# D.A.V.E. 🤖
+<img width="50%" alt="D A V E" src="https://github.com/user-attachments/assets/a77c5c12-878e-4be4-99fe-e7e4947bd3a8" />
+
+# D.A.V.E.
 ### **Direct Agentic Versioning Engine**
 
 D.A.V.E. is an autonomous, local-first AI coding agent engineered to run seamlessly on consumer hardware. Unlike traditional chat interfaces or erratic autonomous loops, D.A.V.E. treats code generation as a highly observable engineering pipeline managed by a strict, bimodal state machine.
 
 ---
+<img width="50%" alt="gui" src="https://github.com/user-attachments/assets/9677ff95-f40b-48b4-9f36-23774ae6e7c9" />
+<img width="50%" alt="cli" src="https://github.com/user-attachments/assets/5419318f-6af6-4dac-b108-79fde71e19cd" />
 
 ## ✨ Core Features
 
