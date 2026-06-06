@@ -9,7 +9,7 @@ D.A.V.E. is an autonomous, local-first AI coding agent engineered to run seamles
 <img width="50%" alt="gui" src="https://github.com/user-attachments/assets/9677ff95-f40b-48b4-9f36-23774ae6e7c9" />
 <img width="50%" alt="cli" src="https://github.com/user-attachments/assets/5419318f-6af6-4dac-b108-79fde71e19cd" />
 
-## ✨ Core Features
+## Core Features
 
 * **Bimodal Unified State Machine:** Operates across independent `Scout`, `Plan`, `Execute`, and `Chat` phases to enforce structured decision-making.
 * **UI Observability X-Ray:** A 4-panel diagnostic suite featuring a live AST skeleton explorer, a unified tool execution stream, context viewers, and a collapsible UI turn accordion to track the agent's exact thought process.
