@@ -28,22 +28,23 @@ RECURRING_REMINDER = "REMINDER: Output complete code. Use double quotes for cont
 
 class TurnWidget(ctk.CTkFrame):
     def __init__(self, master, thought, tools, reply, **kwargs):
-        super().__init__(master, fg_color="#2B2B2B", corner_radius=8, **kwargs)
+        # Adaptive background: Light Mode (gray85), Dark Mode (gray16)
+        super().__init__(master, fg_color=("gray85", "gray16"), corner_radius=8, **kwargs)
         self.expanded = False
 
         # Header Row (Always visible)
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.header_frame.pack(fill="x", padx=5, pady=5)
 
-        self.toggle_btn = ctk.CTkButton(self.header_frame, text="▶ Details", width=60, height=24, fg_color="#444444", hover_color="#555555", command=self.toggle)
+        self.toggle_btn = ctk.CTkButton(self.header_frame, text="+ Details", width=60, height=24, fg_color=("gray75", "gray25"), text_color=("black", "white"), hover_color=("gray65", "gray35"), command=self.toggle)
         self.toggle_btn.pack(side="left", padx=(0, 10))
 
         reply_text = reply if reply and reply.strip() and reply != "..." else "Executing task..."
-        self.reply_label = ctk.CTkLabel(self.header_frame, text=f"D.A.V.E.: {reply_text}", font=("Arial", 13, "bold"), text_color="#81C784", justify="left", wraplength=500)
+        self.reply_label = ctk.CTkLabel(self.header_frame, text=f"D.A.V.E.: {reply_text}", font=("Segoe UI", 13, "bold"), text_color=("#2e7d32", "#81C784"), justify="left", wraplength=500)
         self.reply_label.pack(side="left", fill="x", expand=True, anchor="w")
 
         # Details Row (Hidden by default)
-        self.details_frame = ctk.CTkFrame(self, fg_color="#1E1E1E", corner_radius=6)
+        self.details_frame = ctk.CTkFrame(self, fg_color=("gray90", "gray10"), corner_radius=6)
 
         if thought:
             ctk.CTkLabel(self.details_frame, text="Thinking:", font=("Arial", 11, "bold"), text_color="#AAAAAA").pack(anchor="w", padx=10, pady=(5,0))
@@ -57,10 +58,10 @@ class TurnWidget(ctk.CTkFrame):
     def toggle(self):
         self.expanded = not self.expanded
         if self.expanded:
-            self.toggle_btn.configure(text="▼ Details")
+            self.toggle_btn.configure(text="- Details")
             self.details_frame.pack(fill="x", padx=10, pady=(0, 10))
         else:
-            self.toggle_btn.configure(text="▶ Details")
+            self.toggle_btn.configure(text="+ Details")
             self.details_frame.pack_forget()
 
 class DAVEApp(ctk.CTk):
@@ -147,6 +148,12 @@ class DAVEApp(ctk.CTk):
         self.llm_selector.pack(side="left")
         self.llm_selector.set("local")
 
+        # Appearance Toggle
+        self.appearance_frame = ctk.CTkFrame(self.top_frame, fg_color="transparent")
+        self.appearance_frame.pack(side="left", padx=15)
+        self.appearance_switch = ctk.CTkSwitch(self.appearance_frame, text="Light Mode", width=40, command=self.toggle_appearance)
+        self.appearance_switch.pack(side="left")
+
         self.stop_button = ctk.CTkButton(self.top_frame, text="Stop Agent", fg_color="#C62828", hover_color="#8B0000", command=self.stop_agent)
         self.stop_button.pack(side="right", padx=15)
 
@@ -195,35 +202,35 @@ class DAVEApp(ctk.CTk):
         self.right_frame.pack(side="right", fill="y", padx=(5, 0))
 
         # PANEL 1: CURRENT STATE
-        self.telemetry_frame = ctk.CTkFrame(self.right_frame, fg_color="#1E1E1E", corner_radius=8)
+        self.telemetry_frame = ctk.CTkFrame(self.right_frame, fg_color=("gray85", "gray16"), corner_radius=8)
         self.telemetry_frame.pack(fill="x", padx=5, pady=(5, 5))
     
-        self.phase_label = ctk.CTkLabel(self.telemetry_frame, text="Phase: SCOUT", font=("Arial", 12, "bold"), text_color="#2196F3")
+        self.phase_label = ctk.CTkLabel(self.telemetry_frame, text="Phase: SCOUT", font=("Segoe UI", 12, "bold"), text_color=("#1976d2", "#2196F3"))
         self.phase_label.pack(side="left", padx=10, pady=5)
-        self.conf_label = ctk.CTkLabel(self.telemetry_frame, text="Conf: 100%", font=("Arial", 12, "bold"), text_color="#4CAF50")
+        self.conf_label = ctk.CTkLabel(self.telemetry_frame, text="Conf: 100%", font=("Segoe UI", 12, "bold"), text_color=("#2e7d32", "#4CAF50"))
         self.conf_label.pack(side="left", padx=10, pady=5)
-        self.retry_label = ctk.CTkLabel(self.telemetry_frame, text="Retries: 0", font=("Arial", 12, "bold"), text_color="#F44336")
+        self.retry_label = ctk.CTkLabel(self.telemetry_frame, text="Retries: 0", font=("Segoe UI", 12, "bold"), text_color=("#c62828", "#F44336"))
         self.retry_label.pack(side="right", padx=10, pady=5)
     
-        self.target_label = ctk.CTkLabel(self.right_frame, text="Target: None", font=("Consolas", 11), text_color="#AAAAAA")
+        self.target_label = ctk.CTkLabel(self.right_frame, text="Target: None", font=("Consolas", 11), text_color=("gray40", "gray70"))
         self.target_label.pack(fill="x", padx=10, pady=(0, 5))
 
         # PANEL 2: TOOL STREAM
-        self.tool_stream_label = ctk.CTkLabel(self.right_frame, text="Tool Execution Stream", font=("Arial", 12, "bold"))
+        self.tool_stream_label = ctk.CTkLabel(self.right_frame, text="Tool Execution Stream", font=("Segoe UI", 12, "bold"))
         self.tool_stream_label.pack(pady=(5, 0))
-        self.tool_stream_text = ctk.CTkTextbox(self.right_frame, height=140, state="disabled", font=("Consolas", 11), fg_color="#0A0A0A", text_color="#00FF00")
+        self.tool_stream_text = ctk.CTkTextbox(self.right_frame, height=140, state="disabled", font=("Consolas", 11), fg_color=("gray90", "gray10"), text_color=("#006400", "#00FF00"))
         self.tool_stream_text.pack(fill="x", padx=5, pady=(0, 5))
 
         # PANEL 3: CONTEXT VIEWER
-        self.context_label = ctk.CTkLabel(self.right_frame, text="Context Viewer (Semantic + Memory)", font=("Arial", 12, "bold"))
+        self.context_label = ctk.CTkLabel(self.right_frame, text="Context Viewer (Semantic + Memory)", font=("Segoe UI", 12, "bold"))
         self.context_label.pack(pady=(5, 0))
-        self.context_text = ctk.CTkTextbox(self.right_frame, height=120, state="disabled", font=("Consolas", 11), fg_color="#1A1A2E", text_color="#E0E0E0")
+        self.context_text = ctk.CTkTextbox(self.right_frame, height=120, state="disabled", font=("Consolas", 11), fg_color=("gray90", "gray14"), text_color=("black", "#E0E0E0"))
         self.context_text.pack(fill="x", padx=5, pady=(0, 5))
 
         # PANEL 4: SYSTEM WARNINGS
-        self.warning_label = ctk.CTkLabel(self.right_frame, text="System Warnings", font=("Arial", 12, "bold"), text_color="#F44336")
+        self.warning_label = ctk.CTkLabel(self.right_frame, text="System Warnings", font=("Segoe UI", 12, "bold"), text_color=("#c62828", "#F44336"))
         self.warning_label.pack(pady=(5, 0))
-        self.warning_text = ctk.CTkTextbox(self.right_frame, height=100, state="disabled", font=("Consolas", 11), fg_color="#2E0A0A", text_color="#FF8A80")
+        self.warning_text = ctk.CTkTextbox(self.right_frame, height=100, state="disabled", font=("Consolas", 11), fg_color=("#ffebee", "#3b1a1a"), text_color=("#b71c1c", "#FF8A80"))
         self.warning_text.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
     def initialize_workspace(self):
@@ -250,8 +257,16 @@ class DAVEApp(ctk.CTk):
 
     def toggle_mode(self):
         self.mode = "agent" if self.mode_switch.get() else "chat"
-        self.mode_label_chat.configure(font=("Arial", 12, "normal" if self.mode == "agent" else "bold"))
-        self.mode_label_agent.configure(font=("Arial", 12, "bold" if self.mode == "agent" else "normal"))
+        self.mode_label_chat.configure(font=("Segoe UI", 12, "normal" if self.mode == "agent" else "bold"))
+        self.mode_label_agent.configure(font=("Segoe UI", 12, "bold" if self.mode == "agent" else "normal"))
+
+    def toggle_appearance(self):
+        if self.appearance_switch.get() == 1:
+            ctk.set_appearance_mode("light")
+            self.appearance_switch.configure(text="Dark Mode")
+        else:
+            ctk.set_appearance_mode("dark")
+            self.appearance_switch.configure(text="Light Mode")
 
     def select_llm(self, value):
         prev = getattr(self, 'llm_mode', 'local')
@@ -298,7 +313,7 @@ class DAVEApp(ctk.CTk):
         self.stop_flag = True
         self.status_label.configure(text="Status: Halted", text_color="#F44336")
         self.add_chat_message("SYSTEM: Execution halted by user. Awaiting manual input.", "red")
-        self.llm_queue.put(("unlock_input", "", ""))
+        self.after(0, self._force_unlock_ui)
 
     def send_message(self, event=None):
         # Prevent spawning overlapping threads
@@ -356,9 +371,30 @@ class DAVEApp(ctk.CTk):
         self.input_entry.configure(state="disabled", placeholder_text="D.A.V.E. is thinking...")
         self.send_button.configure(state="disabled")
         self.status_label.configure(text="Status: Running", text_color="#4CAF50")
-        
-        threading.Thread(target=self.process_message, args=(user_input,), daemon=True).start()
 
+        threading.Thread(target=self._safe_process_message, args=(user_input,), daemon=True).start()
+
+    def _safe_process_message(self, user_input):
+        """Wraps the main loop to guarantee the UI unlocks even if the thread crashes."""
+        try:
+            self.process_message(user_input)
+        except Exception as e:
+            self.llm_queue.put(("terminal", f"[SYSTEM CRASH] The agent thread encountered a fatal error: {str(e)}", "red"))
+        finally:
+            self.llm_queue.put(("status", "Idle", "gray"))
+            self._update_telemetry()
+            self.after(0, self._force_unlock_ui)
+
+    def _force_unlock_ui(self):
+        """Directly forces the main thread to unlock inputs, bypassing the queue entirely."""
+        self.is_processing = False
+        self.input_entry.configure(state="normal")
+        self.input_entry.configure(placeholder_text="Give D.A.V.E. a task...")
+        self.send_button.configure(state="normal")
+        try:
+            self.input_entry.focus()
+        except Exception:
+            pass
 
     def _save_observation_memory(self):
         """Persist file heat to disk."""
@@ -518,7 +554,7 @@ class DAVEApp(ctk.CTk):
                     except Exception:
                         pass
 
-            break
+                break  # <-- This is now properly indented INSIDE the task completion block
 
             read_results = {}
             for a in actions:
@@ -727,7 +763,7 @@ class DAVEApp(ctk.CTk):
                     action_result = f"Error: Unknown tool {tool_req}"
 
                 # Handle Errors & Conf
-                if isinstance(action_result, str) and ("Error:" in action_result or "CRITICAL:" in action_result or "STATUS: FAILURE" in action_result):
+                if isinstance(action_result, str) and (action_result.startswith("Error:") or action_result.startswith("[ERR-") or action_result.startswith("CRITICAL:") or "STATUS: FAILURE" in action_result):
                     self.TaskState["system_state"]["last_failing_signature"] = action_signature
                     self.TaskState["system_state"]["confidence"] = max(0.0, self.TaskState["system_state"].get("confidence", 1.0) - 0.5)
                     self.llm_queue.put(("terminal", f"Failed: {action_result[:100]}...", "red"))
@@ -752,16 +788,14 @@ class DAVEApp(ctk.CTk):
             if guardrail_triggered:
                 # Emit the event to the Tool Stream panel for immediate UI visibility
                 self.llm_queue.put(("terminal", "🛑 SYSTEM GUARDRAIL TRIGGERED: Rerouting agent...", "red"))
-
-            # Bypass normal routing so the LLM actually sees the error!
-            next_input = "System Guardrail Triggered. Read the warning and correct your action."
-
-            if sys_confidence < 0.6 and current_phase not in ["Scout", "Chat"] and self.TaskState["system_state"].get("flag_confidence", True):
+                # Bypass normal routing so the LLM actually sees the error!
+                next_input = "System Guardrail Triggered. Read the warning and correct your action."
+            elif sys_confidence < 0.6 and current_phase not in ["Scout", "Chat"] and self.TaskState["system_state"].get("flag_confidence", True):
                 self.TaskState["system_state"]["current_phase"] = "Scout"
                 self.TaskState["system_state"]["confidence"] = 1.0 
                 next_input = "[SYSTEM WARNING] Confidence critically low. Forced to SCOUT phase."
             elif current_phase == "Chat":
-                next_input = f"Tool execution finished. If you need more context to answer '{user_input}', output another tool action. If you don't know exactly where a component is located, DO NOT guess the file path—use the 'semantic_search' tool to find it. Once you have all the context, deliver your final answer in the 'reply' field and leave actions empty []."
+                next_input = f"Tool execution finished. You now have the file context required to answer the user's prompt: '{user_input}'. Deliver your final answer in the 'reply' field and you MUST leave the 'actions' array empty: []."
             elif current_phase == "Scout":
                 self.TaskState["system_state"]["current_phase"] = "Plan"
                 next_input = "Scouting finished. Transitioning to PLAN phase. You MUST use 'update_state'."
@@ -794,10 +828,6 @@ class DAVEApp(ctk.CTk):
                     self.chat_history = self.chat_history[-10:]
                 else:
                     self.ask_history = self.ask_history[-10:]
-
-        self.llm_queue.put(("status", "Idle", "gray"))
-        self._update_telemetry()
-        self.llm_queue.put(("unlock_input", "", ""))
 
     def _update_telemetry(self):
         """Pushes state to the UI safely."""
@@ -883,12 +913,6 @@ class DAVEApp(ctk.CTk):
                             self.target_label.configure(text=f"Target: {data['target']}")
                         except Exception:
                             pass
-
-                    elif msg_type == "unlock_input":
-                        self.is_processing = False
-                        self.input_entry.configure(state="normal", placeholder_text="Give D.A.V.E. a task...")
-                        self.send_button.configure(state="normal")
-                        self.input_entry.focus()
 
                 except Exception as e:
                     # Log handler-level errors to the terminal panel so they are visible

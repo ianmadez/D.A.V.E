@@ -1056,14 +1056,14 @@ def main():
                         if query:
                             print(f"{Colors.YELLOW}[System] Semantic search for '{query}' ... {Colors.RESET}")
                             try:
-                            # Use the already imported semantic_search
+                                # Use the already imported semantic_search
                                 search_res = semantic_search(query, workspace_index.get("index_data", {}))
                                 action_result = search_res.get("context_string", "No results.")
                                 cli_summary.append(f"Semantic search: '{query}'")
                             except Exception as e:
                                 action_result = f"Error: {str(e)}"
-                            else:
-                                action_result = "Error: Missing 'query'."
+                        else:
+                            action_result = "Error: Missing 'query'."
                     else:
                         action_result = f"Error: Unknown tool '{tool_requested}'."
 
@@ -1072,7 +1072,7 @@ def main():
                     print(f"{Colors.CYAN}{snippet}{Colors.RESET}\n")
 
                     # --- BATCH 5.6: RECORD FAILURES ---
-                    if isinstance(action_result, str) and ("Error:" in action_result or "CRITICAL:" in action_result or "STATUS: FAILURE" in action_result):
+                    if isinstance(action_result, str) and (action_result.startswith("Error:") or action_result.startswith("[ERR-") or action_result.startswith("CRITICAL:") or "STATUS: FAILURE" in action_result):
                         TaskState["system_state"]["last_failing_signature"] = action_signature
                         TaskState["system_state"]["confidence"] = max(0.0, TaskState["system_state"].get("confidence", 1.0) - 0.5)
                     else:
