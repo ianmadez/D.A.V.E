@@ -4,3 +4,4 @@ openai
 customtkinter
 libcst
 Pillow
+flet>=0.85.3

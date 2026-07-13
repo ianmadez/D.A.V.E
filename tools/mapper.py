@@ -7,7 +7,7 @@ import time
 from rank_bm25 import BM25Okapi
 
 # Folders to ignore during indexing
-IGNORE_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env', '.dave_cache', 'dist', 'build'}
+IGNORE_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env', '.dave_cache', 'dist', 'build', '.next'}
 VALID_EXTENSIONS = ('.py', '.js', '.ts', '.cpp', '.html', '.css', '.md', '.txt', '.jsx', '.tsx')
 
 def _tokenize(text: str) -> list:
@@ -223,7 +223,7 @@ def get_project_skeleton(target_directory, file_heat=None):
         file_heat = {}
         
     valid_extensions = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css")
-    ignore_folders = {"node_modules", ".git", "dist", "build", "__pycache__", ".dave_cache"}
+    ignore_folders = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", ".dave_cache", "venv", ".venv", "env"}
     
     skeleton = []
     index_data = {}

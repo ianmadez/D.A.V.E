@@ -19,6 +19,8 @@ from tools.search_engine import search_in_file
 from tools.terminal_runner import run_command
 from tools.planner import manage_plan
 from tools.mapper import map_codebase, get_project_skeleton, semantic_search
+from tools.planner import manage_plan
+from tools.demo_recipe_runner import apply_demo_recipe
 
 # Set appearance
 ctk.set_appearance_mode("dark")
@@ -44,16 +46,46 @@ class TurnWidget(ctk.CTkFrame):
         self.reply_label.pack(side="left", fill="x", expand=True, anchor="w")
 
         # Details Row (Hidden by default)
-        self.details_frame = ctk.CTkFrame(self, fg_color=("gray90", "gray10"), corner_radius=6)
+        self.details_frame = ctk.CTkFrame(self, fg_color=("#F7F7F7", "gray10"), corner_radius=6)
+
+        detail_title_color = ("#303030", "#AAAAAA")
+        detail_body_color = ("#1f1f1f", "#CCCCCC")
+        detail_tool_color = ("#1B5E20", "#81C784")
 
         if thought:
-            ctk.CTkLabel(self.details_frame, text="Thinking:", font=("Arial", 11, "bold"), text_color="#AAAAAA").pack(anchor="w", padx=10, pady=(5,0))
-            ctk.CTkLabel(self.details_frame, text=thought, font=("Arial", 11), text_color="#CCCCCC", justify="left", wraplength=500).pack(anchor="w", padx=10, pady=(0,5))
+            ctk.CTkLabel(
+                self.details_frame,
+                text="Thinking:",
+                font=("Arial", 11, "bold"),
+                text_color=detail_title_color
+            ).pack(anchor="w", padx=10, pady=(5, 0))
+
+            ctk.CTkLabel(
+                self.details_frame,
+                text=thought,
+                font=("Arial", 11),
+                text_color=detail_body_color,
+                justify="left",
+                wraplength=500
+            ).pack(anchor="w", padx=10, pady=(0, 5))
 
         if tools:
-            ctk.CTkLabel(self.details_frame, text="Tools Planned:", font=("Arial", 11, "bold"), text_color="#AAAAAA").pack(anchor="w", padx=10, pady=(5,0))
+            ctk.CTkLabel(
+                self.details_frame,
+                text="Tools Planned:",
+                font=("Arial", 11, "bold"),
+                text_color=detail_title_color
+            ).pack(anchor="w", padx=10, pady=(5, 0))
+
             tools_str = "\n".join([f"• {t}" for t in tools])
-            ctk.CTkLabel(self.details_frame, text=tools_str, font=("Consolas", 11), text_color="#4CAF50", justify="left").pack(anchor="w", padx=10, pady=(0,5))
+
+            ctk.CTkLabel(
+                self.details_frame,
+                text=tools_str,
+                font=("Consolas", 11),
+                text_color=detail_tool_color,
+                justify="left"
+            ).pack(anchor="w", padx=10, pady=(0, 5))
 
     def toggle(self):
         self.expanded = not self.expanded
@@ -83,6 +115,13 @@ class DAVEApp(ctk.CTk):
         self.session_changes = []  
         self.stop_flag = False
         self.is_processing = False
+        self.active_task_id = 0
+        self.cancel_event = None
+        self.refresh_in_progress = False
+        self.guided_demo_mode = False
+        self.max_agent_turns = 6
+        self.max_chat_turns = 3
+        self.last_memory_text = ""
 
         # --- BATCH 6.1: UNIFIED STATE MACHINE ---
         self.TaskState = {
@@ -153,6 +192,17 @@ class DAVEApp(ctk.CTk):
         self.appearance_frame.pack(side="left", padx=15)
         self.appearance_switch = ctk.CTkSwitch(self.appearance_frame, text="Light Mode", width=40, command=self.toggle_appearance)
         self.appearance_switch.pack(side="left")
+        
+        self.demo_frame = ctk.CTkFrame(self.top_frame, fg_color="transparent")
+        self.demo_frame.pack(side="left", padx=15)
+
+        self.demo_switch = ctk.CTkSwitch(
+            self.demo_frame,
+            text="Guided Demo",
+            width=40,
+            command=self.toggle_guided_demo
+        )
+        self.demo_switch.pack(side="left")
 
         self.stop_button = ctk.CTkButton(self.top_frame, text="Stop Agent", fg_color="#C62828", hover_color="#8B0000", command=self.stop_agent)
         self.stop_button.pack(side="right", padx=15)
@@ -163,38 +213,39 @@ class DAVEApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.top_frame, text="Status: Idle", text_color="#AAAAAA", font=("Arial", 12, "bold"))
         self.status_label.pack(side="right", padx=15)
 
-        # 3-pane layout
-        self.paned = ctk.CTkFrame(self.main_frame)
-        self.paned.pack(fill="both", expand=True)
+        # 3-pane layout (The Desktop)
+        self.paned = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.paned.pack(fill="both", expand=True, pady=(10, 0))
 
-        # Left sidebar (AST Map)
-        self.left_frame = ctk.CTkFrame(self.paned, width=280)
-        self.left_frame.pack(side="left", fill="y", padx=(0, 5))
+        # Left sidebar (Project Explorer Card)
+        self.left_frame = ctk.CTkFrame(self.paned, width=280, fg_color=("gray90", "gray12"), corner_radius=12, border_width=1, border_color=("gray80", "gray20"))
+        self.left_frame.pack(side="left", fill="y", padx=(0, 10))
         
-        self.ast_label = ctk.CTkLabel(self.left_frame, text="Project Explorer", font=("Arial", 14, "bold"))
-        self.ast_label.pack(pady=(5, 5))
+        self.ast_label = ctk.CTkLabel(self.left_frame, text="📁 Project Explorer", font=("Segoe UI", 15, "bold"))
+        self.ast_label.pack(pady=(15, 10), padx=15, anchor="w")
 
         self.ast_tree = ctk.CTkTextbox(self.left_frame, wrap="none", font=("Consolas", 12))
         self.ast_tree.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
-        # Center (Chat)
-        self.center_frame = ctk.CTkFrame(self.paned)
-        self.center_frame.pack(side="left", fill="both", expand=True, padx=5)
+        # Center (Agent Comm Stream Card)
+        self.center_frame = ctk.CTkFrame(self.paned, fg_color=("gray90", "gray12"), corner_radius=12, border_width=1, border_color=("gray80", "gray20"))
+        self.center_frame.pack(side="left", fill="both", expand=True, padx=10)
         
-        self.chat_label = ctk.CTkLabel(self.center_frame, text="Agent Comm Stream", font=("Arial", 14, "bold"))
-        self.chat_label.pack(pady=(5, 5))
+        self.chat_label = ctk.CTkLabel(self.center_frame, text="Agent Comm Stream", font=("Segoe UI", 15, "bold"))
+        self.chat_label.pack(pady=(15, 5))
 
         self.chat_log = ctk.CTkScrollableFrame(self.center_frame, fg_color="transparent")
-        self.chat_log.pack(fill="both", expand=True, padx=5)
+        self.chat_log.pack(fill="both", expand=True, padx=15, pady=(0, 10))
 
-        self.input_frame = ctk.CTkFrame(self.center_frame, height=50)
-        self.input_frame.pack(fill="x", pady=10, padx=5)
+        # Modern Input Bar
+        self.input_frame = ctk.CTkFrame(self.center_frame, fg_color="transparent")
+        self.input_frame.pack(fill="x", pady=(0, 15), padx=15)
 
-        self.input_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Give D.A.V.E. a task...", font=("Arial", 13))
+        self.input_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Give D.A.V.E. a task...", font=("Segoe UI", 14), height=45, corner_radius=22, border_width=1)
         self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.input_entry.bind("<Return>", self.send_message)
 
-        self.send_button = ctk.CTkButton(self.input_frame, text="Send", width=100, command=self.send_message)
+        self.send_button = ctk.CTkButton(self.input_frame, text="Enter", font=("Segoe UI", 14, "bold"), height=45, corner_radius=22, width=100, fg_color=("#1976d2", "#2196F3"), hover_color=("#1565c0", "#1976D2"), command=self.send_message)
         self.send_button.pack(side="right")
 
         # Right sidebar (Observability X-Ray)
@@ -238,27 +289,116 @@ class DAVEApp(ctk.CTk):
         if not self.target_directory or not os.path.exists(self.target_directory):
             sys.exit(0)
 
-        self.workspace_index = self._build_workspace_index()
         os.makedirs(os.path.join(self.target_directory, ".dave_cache"), exist_ok=True)
+        self.TaskState["system_state"]["file_heat"] = self._load_observation_memory()
         
-        # Load the Cache Layer
-        loaded_heat = self._load_observation_memory()
-        self.TaskState["system_state"]["file_heat"] = loaded_heat
-
-        try:
-            ast_data = map_codebase(self.target_directory, self.TaskState["system_state"].get("file_heat", {}))
-            self.ast_skeleton = ast_data if isinstance(ast_data, str) else ""
-        except Exception:
-            self.ast_skeleton = ""
-
-        self.update_ast_display()
         self.add_terminal_output(f"Workspace set to: {self.target_directory}", "green")
+        self.add_terminal_output("Indexing workspace in background...", "yellow")
+        
         self.after(100, self.check_queues)
+        self._refresh_workspace_async()
 
     def toggle_mode(self):
         self.mode = "agent" if self.mode_switch.get() else "chat"
         self.mode_label_chat.configure(font=("Segoe UI", 12, "normal" if self.mode == "agent" else "bold"))
         self.mode_label_agent.configure(font=("Segoe UI", 12, "bold" if self.mode == "agent" else "normal"))
+        
+    def toggle_guided_demo(self):
+        self.guided_demo_mode = bool(self.demo_switch.get())
+
+        if self.guided_demo_mode:
+            self.add_terminal_output("[System] Guided Demo Mode enabled.", "yellow")
+        else:
+            self.add_terminal_output("[System] Guided Demo Mode disabled.", "yellow")
+            
+    def _wants_guided_demo_recipe(self, user_input):
+        text = user_input.lower()
+
+        demo_words = [
+            "make this site",
+            "make the site",
+            "make this landing page",
+            "modernize",
+            "make it premium",
+            "look premium",
+            "look professional",
+            "make it beautiful",
+            "improve the design",
+            "polish the page",
+            "apply demo recipe",
+            "run demo recipe",
+        ]
+
+        return any(phrase in text for phrase in demo_words)
+
+
+    def _try_guided_demo_recipe(self, user_input, active_history, task_target_directory):
+        if not self.guided_demo_mode:
+            return False
+
+        if not self._wants_guided_demo_recipe(user_input):
+            return False
+
+        recipe_path = os.path.join(task_target_directory, "demo_recipe.json")
+
+        if not os.path.exists(recipe_path):
+            reply = (
+                "Guided Demo Mode is enabled, but I could not find demo_recipe.json "
+                "in the selected workspace."
+            )
+
+            self.llm_queue.put((
+                "agent_turn",
+                {
+                    "thought": "Guided Demo Mode was enabled, but no recipe file was found.",
+                    "tools": ["apply_demo_recipe"],
+                    "reply": reply
+                },
+                "white"
+            ))
+
+            self.llm_queue.put(("terminal", "Error: demo_recipe.json not found.", "red"))
+            return True
+
+        self.llm_queue.put((
+            "agent_turn",
+            {
+                "thought": "Guided Demo Mode matched the user request. Applying deterministic recipe.",
+                "tools": ["apply_demo_recipe"],
+                "reply": "I found a matching guided demo recipe. Applying it now."
+            },
+            "white"
+        ))
+
+        self.llm_queue.put(("terminal", "Applying guided demo recipe...", "yellow"))
+
+        result = apply_demo_recipe(task_target_directory)
+
+        if "STATUS: SUCCESS" in result:
+            reply = "Done. I applied the guided demo recipe and updated the project files."
+            color = "green"
+        else:
+            reply = f"The guided demo recipe could not be completed:\n\n{result}"
+            color = "red"
+
+            self.llm_queue.put(("terminal", result, color))
+
+            self.llm_queue.put((
+                "agent_turn",
+                {
+                    "thought": "Guided demo recipe execution finished.",
+                    "tools": ["apply_demo_recipe"],
+                    "reply": reply
+                },
+                "white"
+            ))
+
+            self._append_with_reminder(active_history, "user", user_input)
+            self._append_with_reminder(active_history, "assistant", reply)
+
+            self._refresh_workspace_async()
+
+            return True
 
     def toggle_appearance(self):
         if self.appearance_switch.get() == 1:
@@ -311,9 +451,18 @@ class DAVEApp(ctk.CTk):
 
     def stop_agent(self):
         self.stop_flag = True
+        
+        if self.cancel_event:
+            self.cancel_event.set()
+            
+        # Invalidate the currently running worker so it cannot later relock/unlock stale state
+        self.active_task_id += 1
+        
         self.status_label.configure(text="Status: Halted", text_color="#F44336")
         self.add_chat_message("SYSTEM: Execution halted by user. Awaiting manual input.", "red")
-        self.after(0, self._force_unlock_ui)
+        
+        # Unlock immediately, not after the worker finishes
+        self._force_unlock_ui()
 
     def send_message(self, event=None):
         # Prevent spawning overlapping threads
@@ -367,30 +516,53 @@ class DAVEApp(ctk.CTk):
             return
 
         self.stop_flag = False
+        self.active_task_id += 1
+        task_id = self.active_task_id
+        
+        self.cancel_event = threading.Event()
+        cancel_event = self.cancel_event
+        
         self.is_processing = True
         self.input_entry.configure(state="disabled", placeholder_text="D.A.V.E. is thinking...")
         self.send_button.configure(state="disabled")
+        self.undo_button.configure(state="disabled")
+        self.mode_switch.configure(state="disabled")
+        self.llm_selector.configure(state="disabled")
+        self.demo_switch.configure(state="disabled")
         self.status_label.configure(text="Status: Running", text_color="#4CAF50")
 
-        threading.Thread(target=self._safe_process_message, args=(user_input,), daemon=True).start()
+        threading.Thread(
+            target=self._safe_process_message,
+            args=(task_id, user_input, cancel_event),
+            daemon=True
+        ).start()
 
-    def _safe_process_message(self, user_input):
-        """Wraps the main loop to guarantee the UI unlocks even if the thread crashes."""
+    def _safe_process_message(self, task_id, user_input, cancel_event):
+        """Runs the agent safely and only lets the current task control the UI."""
         try:
-            self.process_message(user_input)
+            self.process_message(user_input, task_id, cancel_event)
         except Exception as e:
             self.llm_queue.put(("terminal", f"[SYSTEM CRASH] The agent thread encountered a fatal error: {str(e)}", "red"))
         finally:
-            self.llm_queue.put(("status", "Idle", "gray"))
-            self._update_telemetry()
-            self.after(0, self._force_unlock_ui)
+            if task_id == self.active_task_id:
+                self.llm_queue.put(("status", "Idle", "gray"))
+                self._update_telemetry()
+                self.llm_queue.put(("unlock", task_id, "white"))
 
-    def _force_unlock_ui(self):
-        """Directly forces the main thread to unlock inputs, bypassing the queue entirely."""
+    def _force_unlock_ui(self, task_id=None):
+        """Unlocks the input only if this is still the active task."""
+        if task_id is not None and task_id != self.active_task_id:
+            return
+
         self.is_processing = False
         self.input_entry.configure(state="normal")
         self.input_entry.configure(placeholder_text="Give D.A.V.E. a task...")
         self.send_button.configure(state="normal")
+        self.undo_button.configure(state="normal")
+        self.mode_switch.configure(state="normal")
+        self.llm_selector.configure(state="normal")
+        self.demo_switch.configure(state="normal")
+
         try:
             self.input_entry.focus()
         except Exception:
@@ -418,38 +590,363 @@ class DAVEApp(ctk.CTk):
             pass
         return {}
 
-    def decay_file_heat(self):
+    def decay_file_heat(self, refresh=True):
         """Halve all file heat scores to prevent long-term context bloat."""
         heat = self.TaskState["system_state"].get("file_heat", {})
         decayed = {}
+        
         for fname, score in heat.items():
             new_score = score // 2
             if new_score > 0:
                 decayed[fname] = new_score
+                
         self.TaskState["system_state"]["file_heat"] = decayed
         self._save_observation_memory()
-        self.after(0, self.update_ast_display)
+        
+        if refresh:
+            self._refresh_workspace_async()
+
+    def _refresh_workspace_async(self, task_id=None):
+        """Refresh expensive workspace data without blocking the chat input."""
+        if self.refresh_in_progress:
+            return
+
+        self.refresh_in_progress = True
+
+        def worker():
+            try:
+                new_index = self._build_workspace_index()
+
+                try:
+                    new_ast = map_codebase(
+                        self.target_directory,
+                        self.TaskState["system_state"].get("file_heat", {})
+                    )
+                except Exception:
+                    new_ast = getattr(self, "ast_skeleton", "")
+
+                def apply_refresh():
+                    self.workspace_index = new_index
+                    self.ast_skeleton = new_ast if isinstance(new_ast, str) else ""
+                    self.refresh_in_progress = False
+                    self.update_ast_display()
+
+                self.after(0, apply_refresh)
+
+            except Exception as e:
+                self.refresh_in_progress = False
+                self.llm_queue.put(("terminal", f"[Refresh Error] {e}", "red"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def normalize_project_path(self, filename):
+        """Ensure consistent path matching for blind-edit guards."""
+        if not filename: return None
+        if os.path.isabs(filename):
+            try: filename = os.path.relpath(filename, self.target_directory)
+            except ValueError: pass
+        return filename.replace("\\", "/").lstrip("./")
+
+    def _sniff_filename_from_text(self, text):
+        """Extract a filename from natural language like 'read main.py and explain it'."""
+        if not text: return None
+        match = re.search(r'(?<![\w./\\-])([\w./\\-]+\.(?:py|html|css|js|jsx|ts|tsx|json|md|txt))(?![\w-])', text, re.IGNORECASE)
+        return self.normalize_project_path(match.group(1)) if match else None
+
+    def _get_workspace_file_candidates(self, preferred_exts=None):
+        """Return known workspace files, optionally filtered by extension."""
+        files = []
+        try:
+            for rel_path, meta in self.workspace_index.get("files", {}).items():
+                normalized = self.normalize_project_path(rel_path)
+                if not normalized: continue
+                if not preferred_exts or normalized.lower().endswith(preferred_exts):
+                    files.append(normalized)
+        except Exception: pass
+        if not files:
+            valid_exts = preferred_exts or (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".md", ".txt")
+            ignore = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", ".dave_cache", "venv", ".venv", "env"}
+            try:
+                for root, dirs, filenames in os.walk(self.target_directory):
+                    dirs[:] = [d for d in dirs if d not in ignore]
+                    for fname in filenames:
+                        if fname.lower().endswith(valid_exts):
+                            rel_path = os.path.relpath(os.path.join(root, fname), self.target_directory)
+                            files.append(self.normalize_project_path(rel_path))
+            except Exception: pass
+        return sorted(set(files))
+
+    def _resolve_target_filename(self, action=None, user_input="", preferred_exts=None):
+        """Resolve a missing filename safely."""
+        action = action or {}
+        filename = action.get("filename") or action.get("filepath") or action.get("file_path") or action.get("path") or action.get("file") or action.get("target_file") or action.get("target")
+        if filename: return self.normalize_project_path(filename)
+        sniffed = self._sniff_filename_from_text(user_input)
+        if sniffed: return sniffed
+        current_target = self.TaskState["system_state"].get("current_target")
+        if current_target: return self.normalize_project_path(current_target)
+        observed = self.TaskState["system_state"].get("observed_files", [])
+        if observed: return self.normalize_project_path(observed[-1])
+        candidates = self._get_workspace_file_candidates(preferred_exts=preferred_exts)
+        if len(candidates) == 1: return candidates[0]
+        py_candidates = self._get_workspace_file_candidates(preferred_exts=(".py",))
+        if len(py_candidates) == 1: return py_candidates[0]
+        return None
+        """Extract a filename from natural language like 'read main.py and explain it'."""
+        if not text:
+            return None
+
+        match = re.search(
+            r'(?<![\w./\\-])([\w./\\-]+\.(?:py|html|css|js|jsx|ts|tsx|json|md|txt))(?![\w-])',
+            text,
+            re.IGNORECASE
+        )
+
+        if not match:
+            return None
+
+        return self.normalize_project_path(match.group(1))
+
+    def _canonicalize_action(self, action, user_input=""):
+        """Normalize LLM tool arguments so read_file always receives filename."""
+        if isinstance(action, str):
+            action = {"tool": action}
+
+        if not isinstance(action, dict):
+            return {"tool": "none"}
+
+        tool = str(action.get("tool") or "none").lower()
+        action["tool"] = tool
+
+        filename = (
+            action.get("filename")
+            or action.get("filepath")
+            or action.get("file_path")
+            or action.get("path")
+            or action.get("file")
+            or action.get("target_file")
+            or action.get("target")
+        )
+
+        # Special rescue for common chat command: "read main.py"
+        if not filename and tool in ["read_file", "search_in_file"]:
+            filename = self._sniff_filename_from_text(user_input)
+
+        if filename:
+            action["filename"] = self.normalize_project_path(filename)
+
+        return action
+
+    def _wants_direct_file_read(self, text):
+        """Detect simple chat-mode file read requests."""
+        if not text:
+            return False
+
+        return bool(re.search(
+            r"\b(read|open|show|display|contents?|tell me|what'?s in|look at)\b",
+            text,
+            re.IGNORECASE
+        ))
+
+    def _wants_file_explanation(self, text):
+        """Detect when the user wants more than raw file contents."""
+        if not text:
+            return False
+
+        return bool(re.search(
+            r"\b(explain|report|summari[sz]e|analy[sz]e|review|describe|diagnose|"
+            r"what'?s up|what is up|tell me what'?s up|what does it do|"
+            r"walk me through|break it down|overview)\b",
+            text,
+            re.IGNORECASE
+        ))
+
+    def _fallback_file_report(self, filename, file_text):
+        """Deterministic backup if the LLM explanation fails."""
+        lines = file_text.splitlines()
+        imports = []
+        defs = []
+        classes = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                imports.append(stripped)
+            elif stripped.startswith("def "):
+                defs.append(stripped.split("(")[0].replace("def ", ""))
+            elif stripped.startswith("class "):
+                classes.append(stripped.split("(")[0].replace("class ", "").replace(":", ""))
+
+        report = f"Quick report for `{filename}`:\n\n"
+        report += f"- The file has about {len(lines)} readable lines in the returned window.\n"
+
+        if imports:
+            report += f"- Imports detected: {', '.join(imports[:5])}.\n"
+        if classes:
+            report += f"- Classes detected: {', '.join(classes[:5])}.\n"
+        if defs:
+            report += f"- Functions detected: {', '.join(defs[:8])}.\n"
+
+        if not imports and not classes and not defs:
+            report += "- I did not detect obvious imports, classes, or functions in the returned content.\n"
+
+        report += "\nThe file content was read successfully, but the LLM explanation fallback was used."
+        return report
+
+    def _try_direct_chat_read(self, user_input, active_history, task_target_directory, task_llm_mode):
+        """
+        Reliable Chat Mode shortcut:
+        - 'read main.py' displays file contents directly.
+        - 'read main.py and explain/report/tell me what is up' reads first, then asks the LLM to explain.
+        """
+        filename = self._sniff_filename_from_text(user_input)
+
+        if not filename:
+            return False
+
+        if not self._wants_direct_file_read(user_input):
+            return False
+
+        self.llm_queue.put(("terminal", f"Reading {filename}...", "yellow"))
+
+        file_result = read_file_with_lines(filename, task_target_directory)
+
+        if file_result.startswith("Error:"):
+            reply = f"I tried to read `{filename}`, but got this error:\n\n{file_result}"
+
+            self.llm_queue.put((
+                "agent_turn",
+                {
+                    "thought": "Direct chat read attempted, but the file reader returned an error.",
+                    "tools": ["read_file"],
+                    "reply": reply
+                },
+                "white"
+            ))
+
+            self._append_with_reminder(active_history, "user", user_input)
+            self._append_with_reminder(active_history, "assistant", reply)
+            self.llm_queue.put(("terminal", "Direct file read failed.", "red"))
+            return True
+
+        wants_explanation = self._wants_file_explanation(user_input)
+
+        if not wants_explanation:
+            reply = f"Here are the contents of `{filename}`:\n\n{file_result}"
+
+            self.llm_queue.put((
+                "agent_turn",
+                {
+                    "thought": "Direct chat read shortcut used.",
+                    "tools": ["read_file"],
+                    "reply": reply
+                },
+                "white"
+            ))
+
+            self._append_with_reminder(active_history, "user", user_input)
+            self._append_with_reminder(active_history, "assistant", f"Displayed contents of {filename}.")
+            self.llm_queue.put(("terminal", "Direct file read complete.", "green"))
+            return True
+
+        explanation_prompt = f"""
+The user asked:
+
+{user_input}
+
+I have already read the file directly. Do not call tools. Do not request another read.
+Explain, report, summarize, or diagnose the file based only on the content below.
+
+FILE: {filename}
+
+CONTENT:
+{file_result}
+
+Return JSON only:
+{{
+  "thought": "short explanation plan",
+  "reply": "your useful explanation for the user",
+  "actions": []
+}}
+"""
+
+        response = get_llm_response(
+            explanation_prompt,
+            [],
+            task_target_directory,
+            task_llm_mode,
+            is_write_operation=False,
+            chat_mode=True,
+            task_state=None
+        )
+
+        if response.get("valid") and response.get("reply"):
+            reply = response.get("reply")
+        else:
+            reply = self._fallback_file_report(filename, file_result)
+
+        self.llm_queue.put((
+            "agent_turn",
+            {
+                "thought": "Direct file read plus explanation shortcut used.",
+                "tools": ["read_file"],
+                "reply": reply
+            },
+            "white"
+        ))
+
+        self._append_with_reminder(active_history, "user", user_input)
+        self._append_with_reminder(active_history, "assistant", reply)
+        self.llm_queue.put(("terminal", "Direct file read and explanation complete.", "green"))
+        return True
 
     def _append_with_reminder(self, history, role, content, reminder=None):
         history.append({"role": role, "content": content})
         if reminder:
             history.append({"role": "system", "content": f"<system-reminder>{reminder}</system-reminder>"})
 
-    def process_message(self, user_input):
-        current_input = user_input
-        active_history = self.chat_history if self.mode == "agent" else self.ask_history
+    def process_message(self, user_input, task_id=None, cancel_event=None):
+        # Snapshot state so mid-task UI toggles don't corrupt the run
+        task_mode = self.mode
+        task_llm_mode = self.llm_mode
+        task_target_directory = self.target_directory
         
-        # --- BATCH 6.7: CHAT MODE UNIFICATION ---
-        if self.mode == "chat":
+        current_input = user_input
+        active_history = self.chat_history if task_mode == "agent" else self.ask_history
+        
+        if task_mode == "agent":
+            if self._try_guided_demo_recipe(user_input, active_history, task_target_directory):
+                if task_id == self.active_task_id:
+                    self.llm_queue.put(("unlock", task_id, "white"))
+                    return
+        
+        if task_mode == "chat":
+            if self._try_direct_chat_read(user_input, active_history, task_target_directory, task_llm_mode):
+                # Unlock UI directly since we bypassed the normal loop
+                if task_id == self.active_task_id:
+                    self.llm_queue.put(("unlock", task_id, "white"))
+                return
             self.TaskState["system_state"]["current_phase"] = "Chat"
         else:
             self.TaskState["system_state"]["current_phase"] = "Scout" 
             
         last_used_tool = None
         last_run_success = False
+        edit_applied = False
         action_tracker = []
+        turn_count = 0
+        max_turns = self.max_agent_turns if task_mode == "agent" else self.max_chat_turns
 
-        while not self.stop_flag:
+        # Auto-resolve target
+        initial_target = self._resolve_target_filename(action={}, user_input=user_input, preferred_exts=(".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css"))
+        if initial_target:
+            self.TaskState["system_state"]["current_target"] = initial_target
+
+        while not self.stop_flag and not (cancel_event and cancel_event.is_set()):
+            turn_count += 1
+            if turn_count > max_turns:
+                self.llm_queue.put(("terminal", f"[LOOP GUARD] Max turns reached ({max_turns}). Stopping task safely.", "red"))
+                break
             self.llm_queue.put(("status", "Thinking...", "yellow"))
             self._update_telemetry()
 
@@ -471,35 +968,86 @@ class DAVEApp(ctk.CTk):
                     except Exception: pass
 
                 if phase == "Scout":
-                    helmet_prompt += "MODE: EXPLORE. You may ONLY use 'read_file', 'scan_directory', 'search_in_file', 'semantic_search'. If you are ready to execute an edit, use 'update_state' to transition to PLAN.\n"
+                    helmet_prompt += (
+                        "MODE: EXPLORE. Use read_file, scan_directory, search_in_file, or semantic_search only. "
+                        "You must identify the exact target filename before planning an edit. "
+                        "If the user named a file, use that file. "
+                        "If there is only one suitable code file in the workspace, use that file. "
+                        "When ready, use update_state to transition to PLAN.\n"
+                    )
                 elif phase == "Chat":
                     helmet_prompt += "MODE: CHAT. You are a conversational codebase assistant. You may use 'read_file', 'scan_directory', 'search_in_file', 'semantic_search' to find answers. DO NOT use edit tools. You MUST return JSON. Put your answer in the 'reply' field.\n"
                 elif phase == "Plan":
-                    helmet_prompt += "MODE: PLAN. You MUST immediately output a JSON array containing the 'update_state' tool. Do NOT write long thoughts. Do NOT write code.\n"
+                    helmet_prompt += (
+                        "MODE: PLAN. Return a JSON object with an actions array containing exactly one update_state action. "
+                        "The update_state action must include: analysis, options, decision, reason, confidence. "
+                        "The decision must name the target file and the intended edit tool. "
+                        "Do not output code in PLAN. Do not use read_file, run_command, or edit tools in PLAN.\n"
+                    )
                 elif phase == "Execute":
-                    helmet_prompt += "MODE: EXECUTE. Follow your plan. You may use edit tools and 'run_command'. You may use 'read_file' to verify lines.\n"
+                    helmet_prompt += (
+                        "MODE: EXECUTE. You must perform the edit now. "
+                        "If using an edit tool, you MUST include complete new_code. "
+                        "Do not use run_command until after an edit tool succeeds. "
+                        "Allowed edit tools: replace_lines, rewrite_file, replace_named_block, "
+                        "insert_before_symbol, insert_after_symbol, create_file. "
+                        "If adding a new function that does not already exist, do NOT use replace_named_block. "
+                        "Use insert_after_symbol, insert_before_symbol, replace_lines, or rewrite_file instead.\n"
+                    )
                     
                 augmented_input = f"{helmet_prompt}\n[SYSTEM EVENT / USER INPUT]\n{current_input}"
             except Exception as e:
                 augmented_input = current_input
 
             # 2. Call LLM
-            response = get_llm_response(augmented_input, active_history, self.target_directory, self.llm_mode, is_write_operation=(self.mode == "agent"), task_state=self.TaskState, chat_mode=(self.mode == "chat"))
+            response = get_llm_response(augmented_input, active_history, task_target_directory, task_llm_mode, is_write_operation=(task_mode == "agent"), task_state=self.TaskState, chat_mode=(task_mode == "chat"))
 
-            if self.stop_flag: break
+            if self.stop_flag or (cancel_event and cancel_event.is_set()):
+                break
 
             # 3. Handle Invalid format (3-strike recovery)
             if not response.get("valid", False):
                 self.TaskState["system_state"]["retry_count"] += 1
                 err = response.get("error", "Parse error.")
-                self.llm_queue.put(("terminal", f"Brain Error ({self.TaskState['system_state']['retry_count']}/3): {err}", "red"))
-                
-                if self.TaskState["system_state"]["retry_count"] >= 3:
-                    self.llm_queue.put(("terminal", "[ERR-RECOVERY-FAIL] Max retries hit. Fallback to start.", "red"))
+                err_lower = err.lower()
+
+                self.llm_queue.put((
+                    "terminal",
+                    f"Brain Error ({self.TaskState['system_state']['retry_count']}/2): {err}",
+                    "red"
+                ))
+
+                fatal_write_format_error = (
+                    "write action" in err_lower
+                    or "missing 'new_code'" in err_lower
+                    or "missing new_code" in err_lower
+                    or "rewrite nuke ban" in err_lower
+                    or "proposed implementation" in err_lower
+                )
+
+                if fatal_write_format_error:
+                    reply = (
+                        "I stopped because the model attempted a write action without valid replacement code. "
+                        "No file was changed. Try the task again with a specific target file and edit request."
+                    )
+
+                    self.llm_queue.put((
+                        "agent_turn",
+                        {
+                            "thought": "Write validation failed before execution. Stopping instead of looping.",
+                            "tools": ["write_validation"],
+                            "reply": reply
+                        },
+                        "white"
+                    ))
+
+                    self._append_with_reminder(active_history, "user", current_input)
+                    self._append_with_reminder(active_history, "assistant", reply)
+                    break
+
+                if self.TaskState["system_state"]["retry_count"] >= 2:
+                    self.llm_queue.put(("terminal", "[ERR-RECOVERY-FAIL] Format retries exhausted. Stopping safely.", "red"))
                     self.TaskState["system_state"]["retry_count"] = 0
-                    self.TaskState["system_state"]["current_phase"] = "Chat" if self.mode == "chat" else "Scout"
-                    self._append_with_reminder(active_history, "assistant", "[SYSTEM: Multiple failures. Forced restart.]")
-                    current_input = "SYSTEM: Multiple failures. Re-evaluate."
                     break
 
                 self._append_with_reminder(active_history, "assistant", f"CRITICAL FORMAT ERROR: {err}. Fix your JSON.")
@@ -510,14 +1058,7 @@ class DAVEApp(ctk.CTk):
                 self.TaskState["system_state"]["retry_count"] = 0
 
             actions = response.get("actions", [])
-            
-            # --- THE "NONE" TOOL NORMALIZATION FIX ---
-            # Catch capital "None", missing tools, or empty dicts so they don't break the routing
-            for a in actions:
-                if not a.get("tool") or str(a.get("tool")).lower() == "none":
-                    a["tool"] = "none"
-                else:
-                    a["tool"] = str(a.get("tool")).lower()
+            actions = [self._canonicalize_action(a, user_input) for a in actions]
 
             thought = response.get("thought", "")
             agent_reply = response.get("reply", "...")
@@ -534,49 +1075,57 @@ class DAVEApp(ctk.CTk):
             # 4. Check for task completion OR Chat Mode reply
             if not actions or any(a.get("tool") in ("none", "task_complete") for a in actions):
                 # If we are in Agent mode, strictly enforce tests if the flag is on
-                if self.mode == "agent" and any(a.get("tool") in ("none", "task_complete") for a in actions) and self.TaskState["system_state"].get("flag_tests", False):
+                if task_mode == "agent" and any(a.get("tool") in ("none", "task_complete") for a in actions) and self.TaskState["system_state"].get("flag_tests", False):
                     if not (last_used_tool == "run_command" and last_run_success):
                         self._append_with_reminder(active_history, "assistant", "SYSTEM: Task cannot be completed. You have not executed 'run_command' to verify your code works.")
                         current_input = "SYSTEM: Task cannot be completed. You have not executed 'run_command' to verify your code works."
                         continue
 
                 self._append_with_reminder(active_history, "user", current_input)
-                self._append_with_reminder(active_history, "assistant", agent_reply, RECURRING_REMINDER if self.mode == "agent" else None)
+                self._append_with_reminder(active_history, "assistant", agent_reply, RECURRING_REMINDER if task_mode == "agent" else None)
                 self.llm_queue.put(("terminal", "Task/Chat Complete.", "green"))
 
-                if self.mode == "agent":
-                    # Decay the file heat upon task completion to cool down the context window
-                    self.decay_file_heat()
-                    # Sync workspace state after edits
-                    self.workspace_index = self._build_workspace_index()
-                    try:
-                        self.ast_skeleton = map_codebase(self.target_directory, self.TaskState["system_state"].get("file_heat", {}))
-                    except Exception:
-                        pass
+                # Unlock immediately once the agent is logically done
+                if task_id == self.active_task_id:
+                    self.llm_queue.put(("unlock", task_id, "white"))
+
+                if task_mode == "agent":
+                    self.decay_file_heat(refresh=False)
+                    self._refresh_workspace_async(task_id)
 
                 break  # <-- This is now properly indented INSIDE the task completion block
 
             read_results = {}
+            fatal_missing_filename = False
             for a in actions:
                 if a.get("tool") == "read_file":
-                    filename = a.get("filename")
+                    filename = self._resolve_target_filename(action=a, user_input=user_input, preferred_exts=(".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".md", ".txt"))
+                    if filename:
+                        a["filename"] = filename
+                        self.TaskState["system_state"]["current_target"] = filename
                     if not filename:
-                        continue  # Let the downstream executor handle the error gracefully
+                        fatal_missing_filename = True
+                        self.llm_queue.put(("terminal", "[FATAL] read_file requested without filename and no safe default target could be resolved.", "red"))
+                        break
                     self.llm_queue.put(("terminal", f"Reading {filename}...", "yellow"))
-                    read_results[filename] = read_file_with_lines(filename, self.target_directory, a.get("start_line"), a.get("end_line"))
+                    read_results[filename] = read_file_with_lines(filename, task_target_directory, a.get("start_line"), a.get("end_line"))
+
+            if fatal_missing_filename:
+                self.llm_queue.put(("agent_turn", {"thought": "Read failed: No filename.", "tools": ["read_file"], "reply": "I stopped because I couldn't determine which file to read."}, "white"))
+                break
 
             # 5. Execute Tools
             force_agent_break = False
             guardrail_triggered = False
             for a in actions:
                 tool_req = a.get("tool")
-                filename = a.get("filename")
+                filename = self.normalize_project_path(a.get("filename"))
                 new_code = a.get("new_code")
                 command = a.get("command")
                 action_result = None
 
                 # Chat Mode Guard: Prevent any edits while chatting
-                if self.mode == "chat" and tool_req not in ["read_file", "scan_directory", "search_in_file", "semantic_search", "none", "task_complete"]:
+                if task_mode == "chat" and tool_req not in ["read_file", "scan_directory", "search_in_file", "semantic_search", "none", "task_complete"]:
                     if tool_req in ["create_file", "replace_lines", "rewrite_file", "replace_named_block", "insert_before_symbol", "insert_after_symbol", "rename_file", "delete_file"]:
                         action_result = f"[ERR-READ-ONLY] You are in Chat Mode. Edit tool '{tool_req}' is blocked. Tell the user to switch to Agent mode to make edits."
                     else:
@@ -634,10 +1183,27 @@ class DAVEApp(ctk.CTk):
                         self._save_observation_memory()
 
                 if tool_req == "read_file":
-                    _increase_heat(filename, 1) # Warm up on read
-                    action_result = read_results.get(filename, "Error: Missing filename")
-                    if "Error:" not in action_result and filename not in self.TaskState["system_state"]["observed_files"]:
-                        self.TaskState["system_state"]["observed_files"].append(filename)
+                    if not filename:
+                        filename = self._sniff_filename_from_text(user_input)
+                        if filename:
+                            a["filename"] = filename
+
+                    if not filename:
+                        action_result = "Error: Missing filename. Example: read main.py"
+                    else:
+                        _increase_heat(filename, 1)
+                        action_result = read_results.get(filename)
+
+                        if action_result is None:
+                            action_result = read_file_with_lines(
+                                filename,
+                                task_target_directory,
+                                a.get("start_line"),
+                                a.get("end_line")
+                            )
+
+                        if "Error:" not in action_result and filename not in self.TaskState["system_state"]["observed_files"]:
+                            self.TaskState["system_state"]["observed_files"].append(filename)
 
                 elif tool_req == "scan_directory":
                     action_result = scan_directory(self.target_directory)
@@ -738,26 +1304,60 @@ class DAVEApp(ctk.CTk):
                     elif tool_req == "insert_before_symbol": action_result = insert_before_symbol(filename, a.get("symbol_name"), new_code, self.target_directory, edit_intent)
                     elif tool_req == "insert_after_symbol": action_result = insert_after_symbol(filename, a.get("symbol_name"), new_code, self.target_directory, edit_intent)
                     
-                    self.llm_queue.put(("terminal", f"Edited {filename} via {tool_req}", "green"))
-                    self.after(0, self.update_ast_display)
+                    if isinstance(action_result, str) and (
+                        action_result.startswith("Successfully")
+                        or "successfully" in action_result.lower()
+                        or "applied safe edit" in action_result.lower()
+                    ):
+                        edit_applied = True
+                        self.llm_queue.put(("terminal", f"Edited {filename} via {tool_req}", "green"))
+                        self._refresh_workspace_async(task_id)
+                    else:
+                        self.llm_queue.put(("terminal", f"Edit failed: {action_result[:120]}", "red"))
 
                 elif tool_req == "update_state":
                     self.TaskState["llm_notes"] = {"analysis": a.get("analysis", ""), "options": a.get("options", []), "decision": a.get("decision", ""), "reason": a.get("reason", ""), "confidence": a.get("confidence", 0.0)}
                     plan_str = f"DECISION: {a.get('decision')}\nCONFIDENCE: {a.get('confidence')}\n\nREASONING:\n{a.get('analysis')}\n{a.get('reason')}"
                     self.llm_queue.put(("update_plan", plan_str, "white"))
                     action_result = "State updated successfully."
+                    
+                elif tool_req == "manage_plan":
+                    action = a.get("action")
+                    data = a.get("data", "")
+                    if action:
+                        self.llm_queue.put(("terminal", f"Accessing Master Plan ({action})", "yellow"))
+                        try:
+                            action_result = manage_plan(action, data, task_target_directory)
+                        except Exception as e:
+                            action_result = f"Error managing plan: {e}"
+                    else:
+                        action_result = "Error: Missing 'action' argument for manage_plan."
 
                 elif tool_req == "run_command":
-                    if command:
+                    if task_mode == "agent" and not edit_applied:
+                        action_result = (
+                            "[ERR-RUN-BEFORE-EDIT] The agent tried to run a command before any edit was successfully applied. "
+                            "Stopping instead of looping."
+                        )
+                        force_agent_break = True
+
+                    elif command:
                         self.llm_queue.put(("terminal", f"$ {command}", "yellow"))
-                        action_result = run_command(command, self.target_directory)
-                        last_used_tool = "run_command"
-                        last_run_success = isinstance(action_result, str) and "STATUS: SUCCESS" in action_result
-                        self.TaskState["system_ground_truth"]["last_command"] = command
-                        self.TaskState["system_ground_truth"]["exit_code"] = 0 if last_run_success else 1
-                        self.TaskState["system_ground_truth"]["raw_stderr"] = action_result if not last_run_success else ""
+
+                        try:
+                            action_result = run_command(command, task_target_directory, cancel_event=cancel_event)
+                        except TypeError:
+                            action_result = run_command(command, task_target_directory)
+
+                            last_used_tool = "run_command"
+                            last_run_success = isinstance(action_result, str) and "STATUS: SUCCESS" in action_result
+                            self.TaskState["system_ground_truth"]["last_command"] = command
+                            self.TaskState["system_ground_truth"]["exit_code"] = 0 if last_run_success else 1
+                            self.TaskState["system_ground_truth"]["raw_stderr"] = action_result if not last_run_success else ""
+
                     else:
-                        action_result = "Error: no command"
+                        action_result = "[ERR-NO-COMMAND-FATAL] run_command was requested without a command. Stopping instead of looping."
+                        force_agent_break = True
 
                 else:
                     action_result = f"Error: Unknown tool {tool_req}"
@@ -834,15 +1434,19 @@ class DAVEApp(ctk.CTk):
         phase = self.TaskState["system_state"]["current_phase"]
         conf = self.TaskState["system_state"]["confidence"]
         retries = self.TaskState["system_state"]["retry_count"]
-        
+
         self.llm_queue.put(("telemetry", {"phase": phase, "conf": conf, "retries": retries}, "white"))
-        
+
         snippets = self.TaskState["system_state"]["pinned_snippets"]
+
         if not snippets:
             mem_text = "No pinned snippets. Memory is empty."
         else:
             mem_text = "\n".join([f"[{s['filename']}] {s['description']}" for s in snippets])
-        self.llm_queue.put(("memory", mem_text, "white"))
+
+            if getattr(self, "last_memory_text", None) != mem_text:
+                self.last_memory_text = mem_text
+                self.llm_queue.put(("memory", mem_text, "white"))
 
     def _push_undo(self, filename):
         full_path = os.path.join(self.target_directory, filename)
@@ -862,74 +1466,98 @@ class DAVEApp(ctk.CTk):
         self.update_ast_display()
 
     def check_queues(self):
-        try:
-            while True:
+        processed = 0
+        max_per_tick = 50
+
+        while processed < max_per_tick:
+            try:
                 msg = self.llm_queue.get_nowait()
-                try:
-                    msg_type = msg[0]
-                    data = msg[1] if len(msg) > 1 else None
-                    color = msg[2] if len(msg) > 2 else "white"
+            except queue.Empty:
+                break
 
-                    if msg_type == "reply":
-                        self.add_chat_message(data, color)
-                    elif msg_type == "agent_turn":
-                        tw = TurnWidget(self.chat_log, data["thought"], data["tools"], data["reply"])
-                        tw.pack(fill="x", padx=5, pady=5)
-                        self.chat_log._parent_canvas.yview_moveto(1.0)
-                    elif msg_type == "status":
-                        if not self.stop_flag:
-                            self.status_label.configure(text=f"Status: {data}", text_color=color if color != "gray" else "#AAAAAA")
-                    elif msg_type == "terminal":
-                        self.add_terminal_output(data, color)
-                    elif msg_type == "tool_stream":
-                        self.tool_stream_text.configure(state="normal")
-                        self.tool_stream_text.insert("end", f"{data}\n")
-                        self.tool_stream_text.see("end")
-                        self.tool_stream_text.configure(state="disabled")
-                    elif msg_type == "context_viewer":
-                        self.context_text.configure(state="normal")
-                        self.context_text.insert("end", f"{data}\n")
-                        self.context_text.see("end")
-                        self.context_text.configure(state="disabled")
-                    elif msg_type == "warning":
-                        self.warning_text.configure(state="normal")
-                        self.warning_text.insert("end", f"⚠️ {data}\n")
-                        self.warning_text.see("end")
-                        self.warning_text.configure(state="disabled")
-                    elif msg_type == "telemetry":
-                        if isinstance(data, dict):
-                            phase = data.get('phase')
-                            conf = data.get('conf', 0.0)
-                            retries = data.get('retries', 0)
-                            self.phase_label.configure(text=f"Phase: {phase}", text_color="#2196F3" if phase in ["Scout", "Chat"] else "#FFA000" if phase == "Plan" else "#4CAF50")
-                            self.conf_label.configure(text=f"Conf: {int(conf*100)}%", text_color="#4CAF50" if conf >= 0.8 else "#F44336")
-                            self.retry_label.configure(text=f"Retries: {retries}/3", text_color="#F44336" if retries > 0 else "#AAAAAA")
-                        else:
-                            self.add_terminal_output(f"Telemetry payload invalid: {data}", "red")
+            try:
+                msg_type = msg[0]
+                data = msg[1] if len(msg) > 1 else None
+                color = msg[2] if len(msg) > 2 else "white"
 
-                    # Update 'Target' label only when payload is a dict containing it
-                    if isinstance(data, dict) and 'target' in data:
-                        try:
-                            self.target_label.configure(text=f"Target: {data['target']}")
-                        except Exception:
-                            pass
+                if msg_type == "reply":
+                    self.add_chat_message(data, color)
+                elif msg_type == "agent_turn":
+                    tw = TurnWidget(self.chat_log, data["thought"], data["tools"], data["reply"])
+                    tw.pack(fill="x", padx=5, pady=5)
+                    self.chat_log._parent_canvas.yview_moveto(1.0)
+                elif msg_type == "status":
+                    if not self.stop_flag:
+                        self.status_label.configure(text=f"Status: {data}", text_color=color if color != "gray" else "#AAAAAA")
+                elif msg_type == "terminal":
+                    self.add_terminal_output(data, color)
+                elif msg_type == "tool_stream":
+                    self.tool_stream_text.configure(state="normal")
+                    self.tool_stream_text.insert("end", f"{data}\n")
+                    self.tool_stream_text.see("end")
+                    self.tool_stream_text.configure(state="disabled")
+                elif msg_type == "context_viewer":
+                    self.context_text.configure(state="normal")
+                    self.context_text.insert("end", f"{data}\n")
+                    self.context_text.see("end")
+                    self.context_text.configure(state="disabled")
+                elif msg_type == "memory":
+                    self.context_text.configure(state="normal")
+                    self.context_text.insert("end", f"{data}\n")
+                    self.context_text.see("end")
+                    self.context_text.configure(state="disabled")
+                elif msg_type == "update_plan":
+                    self.context_text.configure(state="normal")
+                    self.context_text.insert("end", f"\nPLAN UPDATE:\n{data}\n")
+                    self.context_text.see("end")
+                    self.context_text.configure(state="disabled")
+                elif msg_type == "warning":
+                    self.warning_text.configure(state="normal")
+                    self.warning_text.insert("end", f"⚠️ {data}\n")
+                    self.warning_text.see("end")
+                    self.warning_text.configure(state="disabled")
+                elif msg_type == "telemetry":
+                    if isinstance(data, dict):
+                        phase = data.get('phase')
+                        conf = data.get('conf', 0.0)
+                        retries = data.get('retries', 0)
+                        self.phase_label.configure(text=f"Phase: {phase}", text_color="#2196F3" if phase in ["Scout", "Chat"] else "#FFA000" if phase == "Plan" else "#4CAF50")
+                        self.conf_label.configure(text=f"Conf: {int(conf*100)}%", text_color="#4CAF50" if conf >= 0.8 else "#F44336")
+                        self.retry_label.configure(text=f"Retries: {retries}/3", text_color="#F44336" if retries > 0 else "#AAAAAA")
+                    else:
+                        self.add_terminal_output(f"Telemetry payload invalid: {data}", "red")
+                elif msg_type == "unlock":
+                    self._force_unlock_ui(data)
 
-                except Exception as e:
-                    # Log handler-level errors to the terminal panel so they are visible
+                # Update 'Target' label
+                if isinstance(data, dict) and 'target' in data:
                     try:
-                        self.add_terminal_output(f"check_queues handler error: {e}", "red")
+                        self.target_label.configure(text=f"Target: {data['target']}")
                     except Exception:
                         pass
-                    continue
-        except queue.Empty:
-            pass
-        self.after(50, self.check_queues)
+
+            except Exception as e:
+                try:
+                    self.add_terminal_output(f"check_queues handler error: {e}", "red")
+                except Exception:
+                    pass
+
+            processed += 1
+
+        self.after(10 if processed == max_per_tick else 50, self.check_queues)
 
     def add_chat_message(self, message, color="white"):
-        color_map = {"blue": "#64B5F6", "green": "#81C784", "red": "#E57373", "yellow": "#FFF176", "white": "#FFFFFF"}
-        hex_color = color_map.get(color, "#FFFFFF")
-        msg_label = ctk.CTkLabel(self.chat_log, text=message, text_color=hex_color, font=("Arial", 13), justify="left", wraplength=550)
-        msg_label.pack(anchor="w", padx=10, pady=5)
+        color_map = {"blue": ("#1565c0", "#64B5F6"), "green": ("#2e7d32", "#81C784"), "red": ("#c62828", "#E57373"), "yellow": ("#f57f17", "#FFF176"), "white": ("black", "#FFFFFF")}
+        
+        # Determine if it's the User or the System
+        font_style = ("Segoe UI", 14)
+        if message.startswith("You:"):
+            font_style = ("Segoe UI", 14, "bold")
+            
+        mapped_color = color_map.get(color, ("black", "#FFFFFF"))
+        
+        msg_label = ctk.CTkLabel(self.chat_log, text=message, text_color=mapped_color, font=font_style, justify="left", wraplength=650)
+        msg_label.pack(anchor="w", padx=10, pady=(10, 5))
         self.chat_log._parent_canvas.yview_moveto(1.0)
 
     def add_terminal_output(self, message, color="white"):
@@ -943,44 +1571,52 @@ class DAVEApp(ctk.CTk):
             widget.destroy()
 
     def update_ast_display(self):
-        self.ast_tree.configure(state="normal")
-        self.ast_tree.delete("0.0", "end")
+        """Builds the AST tree string in a background thread to prevent UI stutter."""
         
-        # Build ASCII File Tree
-        tree_str = f"📁 {os.path.basename(self.target_directory)}\n"
-        valid_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".md")
-        ignore = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", ".dave_cache"}
+        def worker():
+            try:
+                tree_str = f"📁 {os.path.basename(self.target_directory)}\n"
+                valid_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json", ".md")
+                ignore = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", ".dave_cache"}
 
-        heat_dict = self.TaskState["system_state"].get("file_heat", {})
-        def get_heat_bar(fname):
-            score = heat_dict.get(fname, 0)
-            if score >= 10: return "[███]"
-            elif score >= 5: return "[██░]"
-            elif score >= 1: return "[█░░]"
-            else: return "[░░░]"
-
-        for root, dirs, files in os.walk(self.target_directory):
-            dirs[:] = [d for d in dirs if d not in ignore]
-            level = root.replace(self.target_directory, '').count(os.sep)
-            indent = ' ' * 4 * level
-            if level > 0:
-                tree_str += f"{indent}📂 {os.path.basename(root)}\n"
-            sub_indent = ' ' * 4 * (level + 1)
-            for f in files:
-                if f.endswith(valid_exts):
-                    bar = get_heat_bar(f)
-                    tree_str += f"{sub_indent}{bar} 📄 {f}\n"
-
-        self.ast_tree.insert("end", "=== PROJECT TREE ===\n")
-        self.ast_tree.insert("end", tree_str)
-        self.ast_tree.insert("end", "\n=== AST METADATA ===\n")
-
-        if hasattr(self, "ast_skeleton") and self.ast_skeleton:
-            self.ast_tree.insert("end", self.ast_skeleton)
-        else:
-            self.ast_tree.insert("end", "No AST map available.")
+                heat_dict = self.TaskState["system_state"].get("file_heat", {})
             
-        self.ast_tree.configure(state="disabled")
+                def get_heat_bar(fname):
+                    score = heat_dict.get(fname, 0)
+                    if score >= 10: return "[███]"
+                    elif score >= 5: return "[██░]"
+                    elif score >= 1: return "[█░░]"
+                    else: return "[░░░]"
+
+                for root, dirs, files in os.walk(self.target_directory):
+                    dirs[:] = [d for d in dirs if d not in ignore]
+                    level = root.replace(self.target_directory, '').count(os.sep)
+                    indent = ' ' * 4 * level
+                    if level > 0:
+                        tree_str += f"{indent}📂 {os.path.basename(root)}\n"
+                    sub_indent = ' ' * 4 * (level + 1)
+                    for f in files:
+                        if f.endswith(valid_exts):
+                            # Fix for nested files: use exact relative path matching for the heat dictionary
+                            rel_path = os.path.relpath(os.path.join(root, f), self.target_directory).replace("\\", "/")
+                            bar = get_heat_bar(rel_path)
+                            tree_str += f"{sub_indent}{bar} 📄 {f}\n"
+
+                final_text = "=== PROJECT TREE ===\n" + tree_str + "\n=== AST METADATA ===\n"
+                ast_skel = getattr(self, "ast_skeleton", "")
+                final_text += ast_skel if ast_skel else "No AST map available."
+
+                def apply_tree():
+                    self.ast_tree.configure(state="normal")
+                    self.ast_tree.delete("0.0", "end")
+                    self.ast_tree.insert("end", final_text)
+                    self.ast_tree.configure(state="disabled")
+
+                self.after(0, apply_tree)
+            except Exception as e:
+                self.llm_queue.put(("terminal", f"[AST Update Error] {e}", "red"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _build_workspace_index(self):
         index = {"files": {}}

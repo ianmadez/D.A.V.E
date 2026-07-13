@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D.A.V.E. — Direct Agentic Versioning Engine</title>
+    <link rel="icon" href="/static/images/D.A.V.E.png" sizes="30x30" type="image/png">
+    <script src="https://cdn.tailwindcss.com">
+        tailwind.config = { corePlugins: { preflight: false } }
+    </script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+
+    <!-- Shader background canvas -->
+    <canvas id="shader-canvas"></canvas>
+
+    <!-- ═══ LOGIN SCREEN ═══ -->
+    <div id="login-screen">
+        <div class="login-card">
+            <img src="/static/images/D.A.V.E.png" alt="D.A.V.E." class="login-logo" />
+            <h1 class="login-title">D.A.V.E.</h1>
+            <p class="login-subtitle">Direct Agentic Versioning Engine</p>
+            <input id="login-passphrase" type="password" placeholder="Enter passphrase"
+                class="input-field w-full mb-4 text-center" autofocus />
+            <button id="login-btn" class="btn-primary w-full" onclick="handleLogin()">Authenticate</button>
+            <p id="login-error" class="text-red-400 text-sm mt-3 hidden">Invalid passphrase. Try again.</p>
+        </div>
+    </div>
+
+    <!-- ═══ DASHBOARD ═══ -->
+    <div id="dashboard">
+
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <span class="app-title">D.A.V.E.</span>
+                <div style="width:1px;height:20px;background:rgba(255,255,255,0.08)"></div>
+                <label class="switch-row">
+                    <span class="text-xs" style="color:var(--text-secondary)">Agent</span>
+                    <input type="checkbox" id="mode-switch" checked class="toggle-switch">
+                </label>
+                <select id="llm-dropdown" class="select-sm">
+                    <option value="local">local</option>
+                    <option value="api">api</option>
+                    <option value="freellmapi">freellmapi</option>
+                </select>
+                <label class="switch-row">
+                    <span class="text-xs" style="color:var(--text-secondary)">Demo</span>
+                    <input type="checkbox" id="demo-switch" class="toggle-switch">
+                </label>
+            </div>
+            <div class="top-bar-right">
+                <span id="status-text" style="font-size:12px;color:var(--text-muted);font-weight:600">Status:
+                    Idle</span>
+                <button class="btn-small btn-icon-only" onclick="handleReset()" title="Reset session">↺</button>
+                <button id="undo-btn" class="btn-small" onclick="handleUndo()">Undo</button>
+                <button id="stop-btn" class="btn-small btn-danger" onclick="handleStop()">Stop</button>
+                <button class="btn-small btn-logout" onclick="handleLogout()" title="Logout">⏻</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+
+            <!-- Sidebar Navigation -->
+            <nav class="sidebar">
+                <button class="nav-btn active" data-panel="telemetry" onclick="switchPanel('telemetry')"
+                    title="Telemetry">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button class="nav-btn" data-panel="explorer" onclick="switchPanel('explorer')"
+                    title="Explorer">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button class="nav-btn" data-panel="settings" onclick="switchPanel('settings')"
+                    title="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+            </nav>
+
+            <!-- Content Area -->
+            <div class="content-area">
+
+                <!-- Telemetry View (default) -->
+                <div id="telemetry-view" class="flex-1 flex gap-3 overflow-hidden">
+
+                    <!-- Center: Chat -->
+                    <main class="flex-1 flex flex-col min-w-0">
+                        <div class="card flex-1 flex flex-col overflow-hidden">
+                            <div style="font-size:13px;font-weight:600;margin-bottom:8px">Agent Comm Stream</div>
+                            <div style="height:1px;background:rgba(255,255,255,0.05);margin-bottom:8px"></div>
+                            <div id="chat-stream" class="flex-1 overflow-y-auto space-y-2 pr-1"></div>
+                            <div
+                                style="margin-top:12px;display:flex;gap:8px;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px">
+                                <input id="message-input" type="text" placeholder="Give D.A.V.E. a task..."
+                                    class="input-field flex-1" onkeydown="if(event.key==='Enter') handleSendMessage()"/>
+                                <button id="send-btn" class="btn-icon" onclick="handleSendMessage()">→</button>
+                            </div>
+                        </div>
+                    </main>
+
+                    <!-- Right: Observability -->
+                    <aside class="right-panel">
+
+                        <div class="card-inner">
+                            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">
+                                Observability</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                <span id="phase-badge" class="badge badge-blue">Phase: SCOUT</span>
+                                <span id="conf-badge" class="badge badge-green">Conf: 100%</span>
+                                <span id="retry-text"
+                                    style="font-size:12px;color:var(--text-muted);align-self:center">Retries: 0/3</span>
+                            </div>
+                            <p id="target-label"
+                                style="font-size:11px;font-family:Consolas;color:var(--text-muted);margin-top:6px">
+                                Target: None</p>
+                        </div>
+
+                        <div class="card-inner">
+                            <p style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Tool
+                                Execution Stream</p>
+                            <div id="tool-stream" class="terminal-box" style="height:140px;overflow-y:auto">
+                                <p style="color:var(--success);font-size:12px;font-family:Consolas">&gt; Ready...</p>
+                            </div>
+                        </div>
+
+                        <div class="card-inner">
+                            <p style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
+                                Context Viewer</p>
+                            <div id="context-viewer" class="terminal-box" style="height:100px;overflow-y:auto">
+                                <p style="color:var(--text-muted);font-size:12px;font-family:Consolas">No context
+                                    loaded.</p>
+                            </div>
+                        </div>
+
+                        <div class="card-inner">
+                            <p style="font-size:11px;font-weight:600;color:var(--danger);margin-bottom:6px">System
+                                Warnings</p>
+                            <div id="warning-panel" class="terminal-box"
+                                style="height:80px;overflow-y:auto;background:rgba(239,68,68,0.04)">
+                                <p style="color:var(--text-muted);font-size:12px;font-family:Consolas">No active system
+                                    warnings.</p>
+                            </div>
+                        </div>
+
+                    </aside>
+                </div>
+
+                <!-- Explorer View (hidden) -->
+                <div id="explorer-view" class="hidden"
+                    style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+                    <div class="card" style="flex:1;overflow-y:auto">
+                        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Project Explorer</div>
+                        <div style="height:1px;background:rgba(255,255,255,0.05);margin-bottom:12px"></div>
+                        <div style="margin-bottom:12px">
+                            <input id="workspace-path" type="text" placeholder="C:/path/to/workspace"
+                                class="input-field w-full" style="font-size:12px;margin-bottom:4px" />
+                            <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Paste a path — quotes are stripped automatically</p>
+                            <button id="workspace-btn" class="btn-primary w-full"
+                                style="font-size:12px;padding:8px;font-weight:500" onclick="handleSetWorkspace()">Set
+                                Workspace</button>
+                        </div>
+                        <div id="file-tree" style="font-size:12px;font-family:Consolas;color:var(--text-secondary)">
+                            <p style="color:var(--text-muted);font-style:italic">No workspace loaded.</p>
+                        </div>
+                        <div style="height:1px;background:rgba(255,255,255,0.05);margin:12px 0"></div>
+                        <div id="ast-metadata" style="font-size:11px;font-family:Consolas;color:var(--text-muted)">No
+                            AST map available.</div>
+                    </div>
+                </div>
+
+                <!-- Settings View (hidden) -->
+                <div id="settings-view" class="hidden" style="flex:1;display:flex;flex-direction:column">
+                    <div class="card" style="max-width:500px">
+                        <h3 style="font-weight:600;margin-bottom:16px">Settings</h3>
+                        <div style="display:flex;flex-direction:column;gap:12px">
+                            <div style="display:flex;align-items:center;gap:12px">
+                                <label style="font-size:13px;color:var(--text-secondary)">Theme:</label>
+                                <label class="switch-row">
+                                    <span style="font-size:12px;color:var(--text-secondary)">Dark</span>
+                                    <input type="checkbox" id="theme-switch" class="toggle-switch">
+                                    <span style="font-size:12px;color:var(--text-secondary)">Light</span>
+                                </label>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:12px">
+                                <label style="font-size:13px;color:var(--text-secondary)">Agent max turns:</label>
+                                <input id="max-agent-turns" type="number" value="6" class="input-field"
+                                    style="width:80px;font-size:13px" />
+                            </div>
+                            <div style="display:flex;align-items:center;gap:12px">
+                                <label style="font-size:13px;color:var(--text-secondary)">Chat max turns:</label>
+                                <input id="max-chat-turns" type="number" value="3" class="input-field"
+                                    style="width:80px;font-size:13px" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Scripts ═══ -->
+    <script src="/static/js/shader-background.js?v={{ cache_buster }}"></script>
+    <script src="/static/js/websocket.js?v={{ cache_buster }}"></script>
+    <script src="/static/js/ui.js?v={{ cache_buster }}"></script>
+    <script src="/static/js/app.js?v={{ cache_buster }}"></script>
+
+</body>
+
+</html>

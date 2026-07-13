@@ -1,0 +1,14 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+header {
+  background: #eeeeee;
+  padding: 30px;
+}
+
+button {
+  padding: 10px;
+}
