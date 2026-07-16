@@ -10,6 +10,19 @@
         tailwind.config = { corePlugins: { preflight: false } }
     </script>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* High-Contrast Adaptive Theme Chat Bubbles */
+        #chat-stream, #chat-stream * {
+            color: #f1f5f9 !important; /* Default crisp off-white for dark mode */
+        }
+        [data-theme="light"] #chat-stream, [data-theme="light"] #chat-stream * {
+            color: #0f172a !important; /* Pristine high-contrast black/slate-900 for light mode */
+        }
+        /* Keep system tags visible */
+        #chat-stream .text-blue-400 { color: #60a5fa !important; }
+        #chat-stream .text-green-400 { color: #4ade80 !important; }
+        #chat-stream .text-red-400 { color: #f87171 !important; }
+    </style>
 </head>
 
 <body>
@@ -35,22 +48,39 @@
 
         <!-- Top Bar -->
         <header class="top-bar">
-            <div class="top-bar-left">
+            <div class="top-bar-left" style="gap: 12px;">
                 <span class="app-title">D.A.V.E.</span>
                 <div style="width:1px;height:20px;background:rgba(255,255,255,0.08)"></div>
-                <label class="switch-row">
-                    <span class="text-xs" style="color:var(--text-secondary)">Agent</span>
-                    <input type="checkbox" id="mode-switch" checked class="toggle-switch">
-                </label>
+                
+                <div class="relative flex items-center p-0.5 bg-slate-950 border border-slate-800 rounded-lg select-none">
+                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-emerald-500/10 has-[:checked]:text-emerald-400 text-slate-500">
+                        <input type="radio" name="mode-group" id="mode-chat-opt" class="sr-only" onclick="document.getElementById('mode-switch').checked = false; document.getElementById('mode-switch').dispatchEvent(new Event('change'));">
+                        Chat
+                    </label>
+                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-blue-500/10 has-[:checked]:text-blue-400 text-slate-500">
+                        <input type="radio" name="mode-group" id="mode-agent-opt" class="sr-only" checked onclick="document.getElementById('mode-switch').checked = true; document.getElementById('mode-switch').dispatchEvent(new Event('change'));">
+                        Agent
+                    </label>
+                </div>
+                <input type="checkbox" id="mode-switch" checked class="hidden">
+
                 <select id="llm-dropdown" class="select-sm">
                     <option value="local">local</option>
                     <option value="api">api</option>
                     <option value="freellmapi">freellmapi</option>
                 </select>
-                <label class="switch-row">
-                    <span class="text-xs" style="color:var(--text-secondary)">Demo</span>
-                    <input type="checkbox" id="demo-switch" class="toggle-switch">
-                </label>
+
+                <div class="relative flex items-center p-0.5 bg-slate-950 border border-slate-800 rounded-lg select-none">
+                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-slate-800 has-[:checked]:text-slate-300 text-slate-500">
+                        <input type="radio" name="demo-group" id="demo-off-opt" class="sr-only" checked onclick="document.getElementById('demo-switch').checked = false; document.getElementById('demo-switch').dispatchEvent(new Event('change'));">
+                        Standard
+                    </label>
+                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-amber-500/10 has-[:checked]:text-amber-400 text-slate-500">
+                        <input type="radio" name="demo-group" id="demo-on-opt" class="sr-only" onclick="document.getElementById('demo-switch').checked = true; document.getElementById('demo-switch').dispatchEvent(new Event('change'));">
+                        Demo Mode
+                    </label>
+                </div>
+                <input type="checkbox" id="demo-switch" class="hidden">
             </div>
             <div class="top-bar-right">
                 <span id="status-text" style="font-size:12px;color:var(--text-muted);font-weight:600">Status:
@@ -178,11 +208,18 @@
                         <div style="display:flex;flex-direction:column;gap:12px">
                             <div style="display:flex;align-items:center;gap:12px">
                                 <label style="font-size:13px;color:var(--text-secondary)">Theme:</label>
-                                <label class="switch-row">
-                                    <span style="font-size:12px;color:var(--text-secondary)">Dark</span>
-                                    <input type="checkbox" id="theme-switch" class="toggle-switch">
-                                    <span style="font-size:12px;color:var(--text-secondary)">Light</span>
-                                </label>
+                                
+                                <div class="relative flex items-center p-0.5 bg-slate-950 border border-slate-800 rounded-lg select-none">
+                                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-slate-800 has-[:checked]:text-slate-300 text-slate-500">
+                                        <input type="radio" name="theme-group" id="theme-dark-opt" class="sr-only" checked onclick="document.documentElement.dataset.theme = 'dark'; document.getElementById('theme-switch').checked = false; document.getElementById('theme-switch').dispatchEvent(new Event('change'));">
+                                        🌙 Dark Mode
+                                    </label>
+                                    <label class="flex items-center justify-center px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-all duration-200 has-[:checked]:bg-amber-500/10 has-[:checked]:text-amber-400 text-slate-500">
+                                        <input type="radio" name="theme-group" id="theme-light-opt" class="sr-only" onclick="document.documentElement.dataset.theme = 'light'; document.getElementById('theme-switch').checked = true; document.getElementById('theme-switch').dispatchEvent(new Event('change'));">
+                                        ☀️ Light Mode
+                                    </label>
+                                </div>
+                                <input type="checkbox" id="theme-switch" class="hidden">
                             </div>
                             <div style="display:flex;align-items:center;gap:12px">
                                 <label style="font-size:13px;color:var(--text-secondary)">Agent max turns:</label>

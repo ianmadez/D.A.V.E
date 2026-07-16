@@ -2,13 +2,41 @@ body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 20px;
+  background-color: #ffffff;
+  color: #333333;
 }
 
 header {
   background: #eeeeee;
   padding: 30px;
+  text-align: center;
+  border-radius: 4px;
 }
 
 button {
-  padding: 10px;
+  padding: 10px 20px;
+  background-color: #008cba;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #007399;
+}
+
+.main-content {
+  margin-top: 20px;
+  padding: 20px;
+}
+
+ul {
+  list-style-type: square;
+}
+
+footer {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #777777;
 }

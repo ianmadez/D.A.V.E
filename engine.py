@@ -329,27 +329,36 @@ class DAVEEngine:
 
     def _push_undo(self, filename):
         full_path = os.path.join(self.target_directory, filename)
+        # If the file exists, save its text; if it's a new file creation, mark it as None so undo can delete it
         if os.path.exists(full_path):
             with open(full_path, "r", encoding="utf-8") as f:
-                self.edit_history.append({
-                    "file": filename, "before": f.read()
-                })
-                if len(self.edit_history) > 30:
-                    self.edit_history.pop(0)
+                content = f.read()
+        else:
+            content = None
+            
+        self.edit_history.append({
+            "file": filename, "before": content
+        })
+        if len(self.edit_history) > 30:
+            self.edit_history.pop(0)
 
     def undo_last_edit(self):
         if not self.edit_history:
             self._queue_put("terminal", "Undo stack empty.", "yellow")
             return False
         entry = self.edit_history.pop()
-        result = rewrite_file(
-            entry["file"], entry["before"], self.target_directory, "Undo")
-        self._queue_put(
-            "terminal",
-            f"Undo: restored {entry['file']}.", "yellow")
-        self._queue_put(
-            "reply",
-            f"Undo completed: restored {entry['file']}.", "yellow")
+        
+        if entry["before"] is None:
+            # Handle rolling back a newly created file path by deleting it cleanly
+            result = delete_file(entry["file"], self.target_directory)
+            msg = f"Undo completed: removed newly created file {entry['file']}."
+        else:
+            # Revert modified files to their exact previous state
+            result = rewrite_file(entry["file"], entry["before"], self.target_directory, "Undo")
+            msg = f"Undo completed: restored {entry['file']}."
+            
+        self._queue_put("terminal", msg, "yellow")
+        self._queue_put("reply", msg, "yellow")
         self._refresh_workspace_async()
         return True
 
@@ -398,6 +407,15 @@ class DAVEEngine:
             return None
 
         user_input = user_input.strip()
+
+        # ── Workspace guard (agent mode) ────────────────────────────
+        if not self.target_directory and self.mode == "agent":
+            self._queue_put(
+                "reply",
+                "SYSTEM: No workspace set. Use the Explorer to set one first.",
+                "red")
+            self._queue_put("unlock", self.active_task_id, "white")
+            return None
 
         # ── Exit / Quit ──────────────────────────────────────────────
         if user_input.lower() in ("exit", "quit"):
@@ -456,7 +474,6 @@ class DAVEEngine:
         cancel_event = self.cancel_event
         self.is_processing = True
 
-        self._queue_put("reply", f"You: {user_input}", "blue")
         self._queue_put("status", "Running", "green")
 
         threading.Thread(
@@ -714,6 +731,8 @@ class DAVEEngine:
             "tools": ["apply_demo_recipe"],
             "reply": reply,
         }, "white")
+        # Explicitly broadcast the final answer to the chat interface channel
+        self._queue_put("reply", reply, "green" if "SUCCESS" in result else "red")
         self._append_with_reminder(active_history, "user", user_input)
         self._append_with_reminder(active_history, "assistant", reply)
         self._refresh_workspace_async()
@@ -798,6 +817,14 @@ Return JSON only:
         task_llm_mode = self.llm_mode
         task_target_directory = self.target_directory
         current_input = user_input
+        
+        # Auto-Rerouter Heuristic: If a prompt is purely read-only or informational,
+        # instantly route it to Chat execution to prevent unnecessary phase loops.
+        is_informational = any(w in user_input.lower() for w in ["list", "show files", "what files", "directory tree", "what is in here"])
+        is_modification = any(w in user_input.lower() for w in ["fix", "create", "write", "change", "modify", "update", "delete", "modernize", "recipe"])
+        if is_informational and not is_modification:
+            task_mode = "chat"
+            
         active_history = (
             self.chat_history if task_mode == "agent" else self.ask_history)
 
@@ -852,7 +879,7 @@ Return JSON only:
                 helmet_prompt = (
                     f"\n=== ACTIVE HELMET PHASE: {phase.upper()} ===\n")
                 if phase in ["Scout", "Chat"] and current_input == user_input:
-                    if phase == "Chat":
+                    if phase == "Chat" and self.target_directory:
                         context = (
                             f"Project: "
                             f"{os.path.basename(self.target_directory)}\n"
@@ -861,20 +888,21 @@ Return JSON only:
                             f"Skeleton:\n{self.ast_skeleton}")
                         helmet_prompt += (
                             f"\n[WORKSPACE CONTEXT]\n{context}\n")
-                    try:
-                        _, index_data = get_project_skeleton(
-                            self.target_directory,
-                            self.TaskState["system_state"].get(
-                                "file_heat", {}))
-                        auto_context = semantic_search(
-                            user_input, index_data, top_n=2)
-                        if ("No strong matches" not in auto_context
-                                and "Error" not in auto_context):
-                            helmet_prompt += (
-                                f"\n[AUTO-RETRIEVED CONTEXT based on your task]\n"
-                                f"{auto_context}\n")
-                    except Exception:
-                        pass
+                    if self.target_directory:
+                        try:
+                            _, index_data = get_project_skeleton(
+                                self.target_directory,
+                                self.TaskState["system_state"].get(
+                                    "file_heat", {}))
+                            auto_context = semantic_search(
+                                user_input, index_data, top_n=2)
+                            if ("No strong matches" not in auto_context
+                                    and "Error" not in auto_context):
+                                helmet_prompt += (
+                                    f"\n[AUTO-RETRIEVED CONTEXT based on your task]\n"
+                                    f"{auto_context}\n")
+                        except Exception:
+                            pass
                 if phase == "Scout":
                     helmet_prompt += (
                         "MODE: EXPLORE. Use read_file, scan_directory, "
@@ -1006,7 +1034,8 @@ Return JSON only:
                     active_history, "assistant", agent_reply,
                     RECURRING_REMINDER if task_mode == "agent" else None)
                 self._queue_put("terminal", "Task/Chat Complete.", "green")
-                    # Broadcast the final conversational answer to the UI chat panel stream
+                # Broadcast the final conversational answer to the UI chat panel stream
+                # Changed color token from "white" to "" to allow text to inherit high-contrast theme styling
                 self._queue_put("reply", agent_reply, "white" if task_mode == "chat" else "green")
                 if task_id == self.active_task_id:
                     self._force_unlock(task_id)
@@ -1017,7 +1046,6 @@ Return JSON only:
 
             # ── Pre-read all files ───────────────────────────────────
             read_results = {}
-            fatal_missing_filename = False
             for a in actions:
                 if a.get("tool") == "read_file":
                     filename = self._resolve_target_filename(
@@ -1028,27 +1056,18 @@ Return JSON only:
                     )
                     if filename:
                         a["filename"] = filename
-                        self.TaskState["system_state"][
-                            "current_target"] = filename
-                    if not filename:
-                        fatal_missing_filename = True
-                        self._queue_put("terminal",
-                            "[FATAL] read_file requested without filename.",
-                            "red")
-                        break
-                    self._queue_put("terminal",
-                        f"Reading {filename}...", "yellow")
-                    read_results[filename] = read_file_with_lines(
-                        filename, task_target_directory,
-                        a.get("start_line"), a.get("end_line"),
-                    )
-            if fatal_missing_filename:
-                self._queue_put("agent_turn", {
-                    "thought": "Read failed: No filename.",
-                    "tools": ["read_file"],
-                    "reply": "I couldn't determine which file to read.",
-                }, "white")
-                break
+                        self.TaskState["system_state"]["current_target"] = filename
+                        self._queue_put("terminal", f"Reading {filename}...", "yellow")
+                        read_results[filename] = read_file_with_lines(
+                            filename, task_target_directory,
+                            a.get("start_line"), a.get("end_line"),
+                        )
+                    else:
+                        # Instead of crashing the engine thread, inject a warning straight into the read map
+                        # This allows the loop to continue and feeds the error back to the LLM to self-correct
+                        a["filename"] = "MISSING"
+                        read_results["MISSING"] = "[ERR-MISSING-PARAMETER] read_file requested without a filename. You must run scan_directory or semantic_search first to find file paths before reading."
+                        self._queue_put("terminal", "Warning: read_file missing target parameter.", "yellow")
 
             # ── 5. Execute Tools ─────────────────────────────────────
             force_agent_break = False
@@ -1149,8 +1168,9 @@ Return JSON only:
                         filename = self._sniff_filename_from_text(user_input)
                         if filename:
                             a["filename"] = filename
-                    if not filename:
-                        action_result = "Error: Missing filename."
+                    # Intercept literal placeholders or empty tracking values immediately
+                    if not filename or filename == "MISSING":
+                        action_result = "Error: Missing filename parameter. You must explicitly inspect the === PROJECT FILES === directory map context or use scan_directory to locate real paths. Do not attempt to read empty filenames or guess names."
                     else:
                         _increase_heat(filename, 1)
                         action_result = read_results.get(filename)
@@ -1326,6 +1346,9 @@ Return JSON only:
                         self._queue_put("terminal",
                             f"Edit failed: {str(action_result)[:120]}",
                             "red")
+                        # Prevent stack poisoning: if the edit failed, pop the snapshot off immediately
+                        if tool_req in ["create_file", "replace_lines", "rewrite_file", "replace_named_block", "insert_before_symbol", "insert_after_symbol"] and self.edit_history:
+                            self.edit_history.pop()
 
                 elif tool_req == "update_state":
                     self.TaskState["llm_notes"] = {

@@ -31,7 +31,7 @@ def write_backup(target_dir, filename, content):
     with open(backup_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-        return backup_path
+    return backup_path
 
 
 def load_recipe(recipe_path):
@@ -99,7 +99,7 @@ def apply_demo_recipe(target_dir, recipe_filename="demo_recipe.json"):
                 line_count = len(content.splitlines())
                 report.append("  Read " + filename + " (" + str(line_count) + " lines).")
 
-            elif tool == "rewrite_file":
+            elif tool in ["rewrite", "write", "rewrite_file"]:
                 if not filename:
                     return "Error: rewrite_file step missing filename."
 
@@ -111,26 +111,28 @@ def apply_demo_recipe(target_dir, recipe_filename="demo_recipe.json"):
 
                 full_path = safe_join(target_dir, filename)
 
+                # Save backup only if the file already exists
                 if os.path.exists(full_path):
                     old_content = read_text(full_path)
                     backup_path = write_backup(target_dir, filename, old_content)
                     report.append("  Backup saved: " + backup_path)
 
-                    result = rewrite_file(
-                        filename,
-                        new_content,
-                        target_dir,
-                        "Apply demo recipe: " + recipe_name
-                        )
+                # Execute file update (handles both edits and fresh creations seamlessly)
+                result = rewrite_file(
+                    filename,
+                    new_content,
+                    target_dir,
+                    "Apply demo recipe: " + recipe_name
+                )
 
-                if result.startswith("Error") or result.startswith("CRITICAL"):
+                if result and (result.startswith("Error") or result.startswith("CRITICAL")):
                     return result
 
-                    files_changed.append(filename)
-                    report.append("  Updated " + filename + ".")
+                files_changed.append(filename)
+                report.append("  Updated " + filename + ".")
 
-                else:
-                    return "Error: Unknown demo recipe tool: " + str(tool)
+            else:
+                return "Error: Unknown demo recipe tool: " + str(tool)
 
     except Exception as e:
         return "Error applying demo recipe: " + str(e)
@@ -143,13 +145,13 @@ def apply_demo_recipe(target_dir, recipe_filename="demo_recipe.json"):
     else:
         report.append("FILES_CHANGED: None")
 
-        run_command = recipe.get("run_command")
-        open_url = recipe.get("open_url")
+    run_command = recipe.get("run_command")
+    open_url = recipe.get("open_url")
 
-        if run_command:
-            report.append("RUN_COMMAND: " + run_command)
+    if run_command:
+        report.append("RUN_COMMAND: " + run_command)
 
-            if open_url:
-                report.append("OPEN_URL: " + open_url)
+    if open_url:
+        report.append("OPEN_URL: " + open_url)
 
-                return "\n".join(report)
+    return "\n".join(report)

@@ -7,7 +7,6 @@ and engine lifecycle management.
 
 import os
 import json
-import queue
 import threading
 import secrets
 import time
@@ -60,24 +59,32 @@ def _validate_token(token: str) -> bool:
 
 # ── WebSocket broadcast infrastructure ──────────────────────────
 
-_ws_queue: queue.Queue = queue.Queue()
+from collections import deque
+
+_ws_deque: deque = deque()
+_ws_drain_scheduled: bool = False
 _active_websockets: set[WebSocket] = set()
 _broadcaster_task: asyncio.Task = None
+_loop: asyncio.AbstractEventLoop = None
 
 
 def _ws_dispatcher(msg):
-    """Called by engine consumer thread. Pushes msg into thread-safe
-    queue for the async broadcaster."""
-    _ws_queue.put(msg)
+    """Called by engine consumer thread. Pushes msg into the thread-safe
+    deque and schedules an async drain on the event loop."""
+    global _ws_drain_scheduled
+    _ws_deque.append(msg)
+    if not _ws_drain_scheduled:
+        _ws_drain_scheduled = True
+        asyncio.run_coroutine_threadsafe(_do_broadcast_drain(), _loop)
 
 
-async def _ws_broadcaster():
-    """Async task: polls _ws_queue, broadcasts to all WebSocket clients."""
-    loop = asyncio.get_event_loop()
-    while True:
-        msg = await loop.run_in_executor(None, _ws_queue.get)
+async def _do_broadcast_drain():
+    """Run on the event loop thread. Drains all queued messages and broadcasts."""
+    global _ws_drain_scheduled, _active_websockets
+    while _ws_deque:
+        msg = _ws_deque.popleft()
         if msg is None:
-            break
+            return
         msg_type = msg[0] if len(msg) > 0 else "unknown"
         data = msg[1] if len(msg) > 1 else None
         color = msg[2] if len(msg) > 2 else "white"
@@ -89,23 +96,27 @@ async def _ws_broadcaster():
             except Exception:
                 dead.add(ws)
         _active_websockets -= dead
+    _ws_drain_scheduled = False
+    # If more items were added during drain, reschedule
+    if _ws_deque and not _ws_drain_scheduled:
+        _ws_drain_scheduled = True
+        _loop.create_task(_do_broadcast_drain())
 
 
 # ── Lifespan ──────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, _broadcaster_task
+    global engine, _broadcaster_task, _loop
     engine = DAVEEngine(on_message_callback=_ws_dispatcher)
-    _broadcaster_task = asyncio.create_task(_ws_broadcaster())
+    _loop = asyncio.get_event_loop()
     print(
         f"DAVE Engine initialized. Passphrase: "
         f"{'SET' if DAVE_PASSPHRASE != 'dave-local' else 'DEFAULT (dave-local)'}"
     )
     yield
-    _ws_queue.put(None)
-    if _broadcaster_task:
-        _broadcaster_task.cancel()
+    _ws_deque.append(None)
+    _loop.create_task(_do_broadcast_drain())
     print("DAVE Server shutting down.")
 
 
@@ -230,7 +241,7 @@ async def agent_websocket(websocket: WebSocket):
             if msg_type == "send_message":
                 message = data.get("message", "")
                 if message:
-                    engine.send_message(message)
+                                    await asyncio.to_thread(engine.send_message, message)
             elif msg_type == "stop":
                 engine.stop_agent()
             elif msg_type == "undo":
@@ -372,4 +383,4 @@ if __name__ == "__main__":
     print(f"Starting D.A.V.E. Server on http://{HOST}:{PORT}")
     print(f"Frontend: {FRONTEND_DIR}")
     print(f"Passphrase: {ps}")
-    uvicorn.run("server:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("server:app", host=HOST, port=PORT, reload=False)
